@@ -9,9 +9,9 @@ handlers:
   static_files: index.html
   upload: index.html
 
-- url: /twittercard.html
-  static_files: static/twittercard.html
-  upload: static/twittercard.html
+- url: /twittercard(.*).html
+  static_files: static/twittercard\1.html
+  upload: static/twittercard.*.html
 
 - url: /css
   static_dir: static/css
