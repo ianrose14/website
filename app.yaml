@@ -9,6 +9,14 @@ handlers:
   static_files: index.html
   upload: index.html
 
+- url: /favicon.ico
+  static_files: favicon.ico
+  upload: favicon.ico
+
+- url: /robots.txt
+  static_files: robots.txt
+  upload: robots.txt
+
 - url: /twitter(.*).html
   static_files: static/twitter\1.html
   upload: static/twitter.*.html
