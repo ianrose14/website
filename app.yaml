@@ -17,9 +17,8 @@ handlers:
   static_files: robots.txt
   upload: robots.txt
 
-- url: /twitter(.*).html
-  static_files: static/twitter\1.html
-  upload: static/twitter.*.html
+- url: /testing/
+  static_dir: static/testing
 
 - url: /css
   static_dir: static/css
