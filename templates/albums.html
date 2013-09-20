@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+{% autoescape true %}
+<html>
+  <head>
+    <style>
+      a {
+        color: #08C;
+        text-decoration: none;
+      }
+
+      body {
+        color: #333;
+        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+        font-size: 14px;
+        margin: 10px;
+      }
+      
+      .icon {
+        vertical-align: middle;
+      }
+      
+      .iconContainer {
+        display: inline-block;
+        line-height: 40px;
+        text-align: center;
+        width: 40px;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Ian Rose's Family Albums</h2>
+    {% for album in albums %}
+    <span class="iconContainer">
+      {% if album.icon %}<img src="{{album.icon}}" class="icon" style="height: {{album.icon_height}}" title="{{album.icon_alt}}">{% endif %}
+    </span>
+    <a href="{{album.url}}">{{album.name}}</a><br>
+    {% endfor %}
+  </body>
+</html>
+{% endautoescape %}

@@ -12,6 +12,9 @@ handlers:
 - url: /favicon.ico
   static_files: favicon.ico
   upload: favicon.ico
+  
+- url: /albums/?
+  script: main.app
 
 - url: /robots.txt
   static_files: robots.txt
@@ -40,3 +43,9 @@ handlers:
 
 - url: /talks
   static_dir: talks
+
+libraries:
+- name: webapp2
+  version: latest
+- name: jinja2
+  version: latest
