@@ -1,15 +1,14 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
 
+<!DOCTYPE html>
+<html>
+  <head>
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:site" content="@HomebaseIO">
-    <meta name="twitter:title" content="Find a band for next customer conference">
-    <meta name="twitter:description" content="We need one!">
-    <meta name="twitter:image" content="http://s3.amazonaws.com/mn-blobs/9b5109c7-a904-4dd6-ac1e-cdcd939a267e">
+    <meta name="twitter:title" content="HOT COOKIE USB MUG WARMER">
+    <meta name="twitter:description" content="Totally need to get one!">
+    <meta name="twitter:image" content="http://s3.amazonaws.com/mn-blobs/e4bc3816-9267-46e3-992c-b36406b15e36">
 
-    <title>Find a band for next customer conference</title>
+    <title>HOT COOKIE USB MUG WARMER</title>
     <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no">
     <link rel="SHORTCUT ICON" href="favicon.ico">
     <style type="text/css">
@@ -22,10 +21,10 @@
   </head>
 
   <body style="overflow: auto;">
-    <div style="display:none" id="titlePlain">Find a band for next customer conference</div>
-    <div style="display:none" id="bodyMarkdown">We need one!</div>
-    <div style="display:none" id="bodyPlain">We need one!</div>
-    <div style="display:none" id="imageUrl">//s3.amazonaws.com/mn-blobs/9b5109c7-a904-4dd6-ac1e-cdcd939a267e</div>
+    <div style="display:none" id="titlePlain">HOT COOKIE USB MUG WARMER</div>
+    <div style="display:none" id="bodyMarkdown">Totally need to get one!</div>
+    <div style="display:none" id="bodyPlain">Totally need to get one!</div>
+    <div style="display:none" id="imageUrl">//s3.amazonaws.com/mn-blobs/e4bc3816-9267-46e3-992c-b36406b15e36</div>
 
     <!-- TODO(ianrose: add tracking/analytics? -->
 
@@ -47,13 +46,23 @@
 
       var userPrompt = document.createElement('div');
       userPrompt.classList.add('user-prompt');
-      userPrompt.textContent = '';
+      userPrompt.textContent = 'Great!  This card is now posted publicly and anyone with the link can view it.  Time to announce it with a tweet!';
       twitterBar.appendChild(userPrompt);
 
+      twitterBar.style.backgroundColor = '#eee';
     </script>
 
-    <a href="https://twitter.com/share" class="twitter-share-button" data-via="HomebaseIO">Tweet</a>
+    <script type='text/javascript'>
+      var twittah = document.createElement('a');
+      twittah.setAttribute('href', 'https://twitter.com/share');
+      twittah.setAttribute('class', 'twitter-share-button');
+      twittah.setAttribute('data-via', 'HomebaseIO');
+      twittah.textContent = 'Tweet';
+      rightside.appendChild(twittah);
+    </script>
     <script>!function(d,s,id){var js,fjs=d.getElementsByTagName(s)[0],p=/^http:/.test(d.location)?'http':'https';if(!d.getElementById(id)){js=d.createElement(s);js.id=id;js.src=p+'://platform.twitter.com/widgets.js';fjs.parentNode.insertBefore(js,fjs);}}(document, 'script', 'twitter-wjs');</script>
+
+
 
   </body>
 </html>
