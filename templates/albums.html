@@ -26,6 +26,11 @@
         width: 40px;
       }
     </style>
+    <script type="text/javascript">
+      function goto(url) {
+        document.location = url;
+      }
+    </script>
   </head>
   <body>
     <h2>Ian Rose's Family Albums</h2>
@@ -33,7 +38,8 @@
     <span class="iconContainer">
       {% if album.icon %}<img src="{{album.icon}}" class="icon" style="height: {{album.icon_height}}" title="{{album.icon_alt}}">{% endif %}
     </span>
-    <a href="{{album.url}}">{{album.name}}</a><br>
+    <!-- there is something weird with my DNS setup, so raw links to dropbox albums don't work -->
+    <a href="javascript:goto('{{album.url}}');">{{album.name}}</a><br>
     {% endfor %}
   </body>
 </html>
