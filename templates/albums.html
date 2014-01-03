@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+B<!DOCTYPE html>
 {% autoescape true %}
 <html>
   <head>
@@ -26,11 +26,6 @@
         width: 40px;
       }
     </style>
-    <script type="text/javascript">
-      function goto(url) {
-        document.location = url;
-      }
-    </script>
   </head>
   <body>
     <h2>Ian Rose's Family Albums</h2>
@@ -39,7 +34,7 @@
       {% if album.icon %}<img src="{{album.icon}}" class="icon" style="height: {{album.icon_height}}" title="{{album.icon_alt}}">{% endif %}
     </span>
     <!-- there is something weird with my DNS setup, so raw links to dropbox albums don't work -->
-    <a href="javascript:goto('{{album.url}}');">{{album.name}}</a><br>
+    <a href="{{album.url}}" target="_blank">{{album.name}}</a><br>
     {% endfor %}
   </body>
 </html>
