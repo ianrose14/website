@@ -14,31 +14,33 @@
     var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
   })();
 </script>
+
+<script type="text/javascript">
+var _fs_debug = false;
+var _fs_host='fs-staging.appspot.com',_fs_org='ianthomasrose.com';
+(function(m,n,e,t,l,o,g,y){
+  g=m[e]=function(a,b){g.q?g.q.push([a,b]):g._api(a,b);};g.q=[];
+  o=n.createElement(t);o.async=1;o.src='https://'+_fs_host+'/s/fs.js';
+  y=n.getElementsByTagName(t)[0];y.parentNode.insertBefore(o,y);
+  g.identify=function(i,v){g(l,{uid:i});if(v)g(l,v)};g.setUserVars=function(v){FS(l,v)};
+  g.setSessionVars=function(v){FS('session',v)};g.setPageVars=function(v){FS('page',v)};
+})(window,document,'FS','script','user');
+
+</script>
+
 </head>
 <body>
-<script>
-var _fs_debug = false;
-var _fs_host='fs-staging.appspot.com',_fs_org='agxzfmZzLXN0YWdpbmdyEAsSA09yZxiAgICA4MvUCQw';
-var _fs_ready = function() {
-  // FS.setUid(
-  //    'app-specific-user-id',           // required
-  //    'User Name',                      // optional
-  //    { any: 'meta', data: 'you like' } // optional
-  // );
-};
-(function(w,a,t){a=w.createElement('script');a.async=1;a.src='https://'+_fs_host+'/s/fs.js';w.body.appendChild(a)})(document);
-</script>
 <div class="body-wrapper">
 <table cellpadding="0" cellspacing="0" border="0" width="100%">
   <tr>
     <td align="left" valign="top">
       <div style="font-size: 21px; padding-left: 5px; padding-top: 5px; padding-bottom: 30px"><b>Ian Rose, PhD</b></div>
       <div style="padding-left: 5px; padding-right: 15px">
-        I'm a software engineer based in Atlanta, GA.  Currently I'm working at <a href="http://www.monetology.com/">Monetology</a>,
-        an awesome startup that's building tools to make marketers' lives a little easier.  We recently launched
-        <a href="http://homebase.io">Homebase</a> - go check it out and sign up for a free trial!
+        I'm a software engineer based in Atlanta, GA.  I help build and run <a href="http://www.thefullstory.com/">FullStory</a>,
+	an awesome tool for understanding your website visitors' behavior in detail.  Think: super-searchable html DVR.
+	Go check it out!
 
-        <p>In 2011 I graduated from Harvard with a PhD in computer science, focusing on distributed systems and in particular on wireless networks (both 802.11 and 802.15.4).  I then spent a year at Google working on development tools, with an emphasis on backend development.  In July I left Google to join 6 other ex-googlers at Monetology.</p>
+        <p>In 2011 I graduated from Harvard with a PhD in computer science, focusing on distributed systems and in particular on wireless networks (both 802.11 and 802.15.4).  I then spent a year at Google working on development tools, with an emphasis on backend development.  In July of 2012, I left Google to join 6 other ex-googlers at <a href="http://www.monetology.com/">Monetology</a>.</p>
 
         <p>For all of the gory details, please see my
           <a href="docs/cv.pdf" onClick="javascript:_gaq.push(['_trackPageview', 'cv.pdf']);">C.V.</a>.  You can also follow my witty banter on various social networks...
