@@ -22,7 +22,8 @@ from webapp2_extras.routes import RedirectRoute
 #
 # CONSTANTS
 #
-CFG_URL = 'https://www.dropbox.com/s/kr8ewc68husts57/albums.json?dl=1'
+ALBUMS_CONFIG_URL = 'https://www.dropbox.com/s/kr8ewc68husts57/albums.json?dl=1'
+KIDLINKS_CONFIG_URL = 'https://www.dropbox.com/s/5vdvc3l1pkly94f/weblinks.json?dl=1'
 ACCESS_TOKEN = 'wThl210Kpx4AAAAAAAA749UieNrexm9F5VJ3eOdrEB0X5I_LmiDjQ2FT7gMolnEl'
 
 
@@ -39,7 +40,7 @@ class AlbumsHandler(webapp2.RequestHandler):
   """ Serves a page that lists all available photo albums. """
   def get(self):
     try:
-      rsp = urllib2.urlopen(CFG_URL)
+      rsp = urllib2.urlopen(ALBUMS_CONFIG_URL)
     except urllib2.HTTPError, e:
       self.show_error('Failed to fetch albums list (http %d: %s)' % (e.code, e.reason))
       return
@@ -67,6 +68,23 @@ class AlbumsHandler(webapp2.RequestHandler):
 
   def show_error(self, s):
     self.response.write('<h3>Error!</h3><div>%s</div>' % s)
+
+
+class KidsHandler(webapp2.RequestHandler):
+  def get(self):
+    try:
+      rsp = urllib2.urlopen(KIDLINKS_CONFIG_URL)
+    except urllib2.HTTPError, e:
+      self.show_error('Failed to fetch kidlinks (http %d: %s)' % (e.code, e.reason))
+      return
+    except urllib2.URLError, e:
+      self.show_error('Failed to fetch kidlinks (%s)' % str(e))
+      return
+
+    cfg = json.load(rsp)
+
+    template = JINJA_ENVIRONMENT.get_template('templates/kidlinks.html')
+    self.response.write(template.render(cfg))
 
 
 class ThumbnailHandler(webapp2.RequestHandler):
@@ -100,5 +118,6 @@ JINJA_ENVIRONMENT = jinja2.Environment(
 routes = [
   RedirectRoute('/albums/', handler=AlbumsHandler, strict_slash=True, name='albums'),
   webapp2.Route('/albums/thumbnail', handler=ThumbnailHandler, name='thumbnail'),
+  RedirectRoute('/kids/', handler=KidsHandler, strict_slash=True, name='kids'),
   ]
 app = webapp2.WSGIApplication(routes, debug=True)

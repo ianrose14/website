@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 {% autoescape true %}
   <head>
-    <link type="text/css" href="/css/albums.css" rel="stylesheet" media="screen">
+    <link type="text/css" href="/css/kids.css" rel="stylesheet" media="screen">
 
     <script type="text/javascript">
       var _fs_debug = false;
@@ -17,19 +17,15 @@
   </head>
   <body>
     <div class="main-wrapper">
-      <div class="title">Rose Family Albums</div>
-      <div class="albums">
-        {% for album in albums %}
-        <a href="{{album.url}}" target="_blank">
-          <div class="album">
-            {% if album.cover_url %}
-            <span style="background-image: url('{{album.cover_url}}');" class="cover"></span><br>
-            {% endif %}
-            <span class="album-title">
-              {{album.name}}
-            </span>
-          </div>
-        </a>
+      <div class="title">Kids' Links</div>
+      <div class="sections">
+        {% for section in sections %}
+        <H2>{{ section.title }}</H2>
+        <ul>
+          {% for link in section.links %}
+          <li><a href="{{link.href}}">{{link.text}}</a>{% if link.notes %} ({{ link.notes }}){% endif %}</li>
+          {% endfor %}
+        </ul>
         {% endfor %}
       </div>
     </div>

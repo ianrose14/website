@@ -29,6 +29,9 @@ handlers:
 - url: /docs
   static_dir: docs
 
+- url: /kids(.*)
+  script: main.app
+
 - url: /images
   static_dir: static/images
 
