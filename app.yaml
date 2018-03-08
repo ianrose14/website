@@ -20,14 +20,8 @@ handlers:
   static_files: robots.txt
   upload: robots.txt
 
-- url: /testing/
-  static_dir: static/testing
-
 - url: /css
   static_dir: static/css
-
-- url: /docs
-  static_dir: docs
 
 - url: /kids(.*)
   script: main.app
