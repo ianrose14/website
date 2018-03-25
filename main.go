@@ -166,6 +166,7 @@ app = webapp2.WSGIApplication(routes, debug=True)
 
 func main() {
 	http.HandleFunc("/albums", AlbumsHandler)
+	http.HandleFunc("/albums/", AlbumsHandler)
 	http.HandleFunc("/albums/thumbnail", ThumbnailHandler)
 	appengine.Main()
 }
