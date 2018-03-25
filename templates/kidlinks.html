@@ -1,5 +1,4 @@
 <!DOCTYPE html>
-{% autoescape true %}
   <head>
     <link type="text/css" href="/css/kids.css" rel="stylesheet" media="screen">
 
@@ -19,16 +18,15 @@
     <div class="main-wrapper">
       <div class="title">Kids' Links</div>
       <div class="sections">
-        {% for section in sections %}
-        <H2>{{ section.title }}</H2>
+        {{ range .Sections }}
+        <H2>{{ .Title }}</H2>
         <ul>
-          {% for link in section.links %}
-          <li><a href="{{link.href}}">{{link.text}}</a>{% if link.notes %} ({{ link.notes }}){% endif %}</li>
-          {% endfor %}
+          {{ range .Links }}
+          <li><a href="{{ .Href }}">{{ .Text }}</a>{{ .Notes }}</li>
+          {{ end }}
         </ul>
-        {% endfor %}
+        {{ end }}
       </div>
     </div>
   </body>
-{% endautoescape %}
 </html>

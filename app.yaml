@@ -1,8 +1,7 @@
 application: ian-rose
 version: 1
-runtime: python27
-api_version: 1
-threadsafe: yes
+api_version: go1
+runtime: go
 
 handlers:
 - url: /
@@ -14,7 +13,7 @@ handlers:
   upload: favicon.ico
 
 - url: /albums(.*)
-  script: main.app
+  script: _go_app
 
 - url: /robots.txt
   static_files: robots.txt
@@ -24,7 +23,7 @@ handlers:
   static_dir: static/css
 
 - url: /kids(.*)
-  script: main.app
+  script: _go_app
 
 - url: /images
   static_dir: static/images
@@ -32,19 +31,8 @@ handlers:
 - url: /js
   static_dir: static/js
 
-- url: /ports(.*)
-  script: ip_redirect.app
-
 - url: /pubs
   static_dir: pubs
 
 - url: /talks
   static_dir: talks
-
-libraries:
-- name: webapp2
-  version: latest
-- name: jinja2
-  version: latest
-- name: ssl
-  version: latest
