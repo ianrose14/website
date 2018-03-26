@@ -16,7 +16,7 @@ import (
 
 const (
 	AlbumsConfigUrl   = "https://www.dropbox.com/s/kr8ewc68husts57/albums.json?dl=1"
-	KidlinksConfigUrl = "https://www.dropbox.com/s/5vdvc3l1pkly94f/weblinks.json?dl=1"
+	KidLinksConfigUrl = "https://www.dropbox.com/s/5vdvc3l1pkly94f/weblinks.json?dl=1"
 )
 
 var (
@@ -60,6 +60,43 @@ func AlbumsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := albumsTemplate.Execute(w, results.Albums); err != nil {
+		HttpError(ctx, w, http.StatusInternalServerError, "failed to render template: %s", err)
+		return
+	}
+}
+
+type links struct {
+	Sections []struct {
+		Title string `json:"title"`
+		Links []struct {
+			Href  string `json:"href"`
+			Text  string `json:"text"`
+			Notes string `json:"notes"`
+		} `json:"links"`
+	} `json:"sections"`
+}
+
+func KidsLinksHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := appengine.NewContext(r)
+	rsp, err := urlfetch.Client(ctx).Get(KidLinksConfigUrl)
+	if err != nil {
+		HttpError(ctx, w, http.StatusInternalServerError, "failed to fetch kid links config from dropbox: %s", err)
+		return
+	}
+	defer DrainAndClose(rsp.Body)
+
+	if err := CheckResponse(rsp); err != nil {
+		HttpError(ctx, w, http.StatusInternalServerError, "failed to fetch kid links config from dropbox: %s", err)
+		return
+	}
+
+	var results links
+	if err := json.NewDecoder(rsp.Body).Decode(&results); err != nil {
+		HttpError(ctx, w, http.StatusInternalServerError, "failed to json-decode response: %s", err)
+		return
+	}
+
+	if err := kidLinksTemplate.Execute(w, &results); err != nil {
 		HttpError(ctx, w, http.StatusInternalServerError, "failed to render template: %s", err)
 		return
 	}
@@ -127,46 +164,9 @@ func ThumbnailHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-/*
-
-class KidsHandler(webapp2.RequestHandler):
-  def get(self):
-    try:
-      rsp = urllib2.urlopen(KidlinksConfigUrl)
-    except urllib2.HttpError, e:
-      self.show_error("Failed to fetch kidlinks (http %d: %s)" % (e.code, e.reason))
-      return
-    except urllib2.URLError, e:
-      self.show_error("Failed to fetch kidlinks (%s)" % str(e))
-      return
-
-    cfg = json.load(rsp)
-
-    template = JINJA_ENVIRONMENT.get_template("templates/kidlinks.html")
-    self.response.write(template.render(cfg))
-
-
-
-#
-# Executed by app.yaml
-#
-
-JINJA_ENVIRONMENT = jinja2.Environment(
-    loader=jinja2.FileSystemLoader(os.path.dirname(__file__)),
-    extensions=["jinja2.ext.autoescape"])
-
-routes = [
-  RedirectRoute("/albums/", handler=AlbumsHandler, strict_slash=True, name="albums"),
-  webapp2.Route("/albums/thumbnail", handler=ThumbnailHandler, name="thumbnail"),
-  RedirectRoute("/kids/", handler=KidsHandler, strict_slash=True, name="kids"),
-  ]
-app = webapp2.WSGIApplication(routes, debug=True)
-
-*/
-
 func main() {
-	http.HandleFunc("/albums", AlbumsHandler)
 	http.HandleFunc("/albums/", AlbumsHandler)
 	http.HandleFunc("/albums/thumbnail", ThumbnailHandler)
+	http.HandleFunc("/kids/", KidsLinksHandler)
 	appengine.Main()
 }
