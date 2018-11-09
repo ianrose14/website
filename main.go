@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strings"
@@ -62,6 +65,53 @@ func AlbumsHandler(w http.ResponseWriter, r *http.Request) {
 	if err := albumsTemplate.Execute(w, results.Albums); err != nil {
 		HttpError(ctx, w, http.StatusInternalServerError, "failed to render template: %s", err)
 		return
+	}
+}
+
+func DumpHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := appengine.NewContext(r)
+	w.Header().Set("Content-Type", "text/plain")
+
+	writeIt := func(s string, args ...interface{}) {
+		log.Debugf(ctx, s, args...)
+		fmt.Fprintf(w, s+"\n", args...)
+	}
+
+	writeIt("URL: %s", r.URL)
+	writeIt("Method: %s", r.Method)
+	writeIt("Proto: %s", r.Proto)
+	writeIt("RemoteAddr: %s", r.RemoteAddr)
+
+	var buf bytes.Buffer
+	buf.WriteString("Headers:\n")
+	for k, v := range r.Header {
+		fmt.Fprintf(&buf, "%s: %v\n", k, v)
+	}
+	writeIt("%s", buf.String())
+	fmt.Fprintln(w, "") // write blank line to response body
+
+	buf.Reset()
+	buf.WriteString("Cookies:\n")
+	for _, c := range r.Cookies() {
+		fmt.Fprintf(&buf, "%s\n", c)
+	}
+	writeIt("%s", buf.String())
+	fmt.Fprintln(w, "") // write blank line to response body
+
+	b, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		writeIt("error: failed to read body: %s", err)
+	} else {
+		buf.Reset()
+		if _, err := base64.NewEncoder(base64.StdEncoding, &buf).Write(b); err != nil {
+			writeIt("error: failed to base64-encode body: %s", err)
+		} else {
+			writeIt("Body (base64):\n%s\n", buf.String())
+		}
+		fmt.Fprintln(w, "") // write blank line to response body
+
+		writeIt("Body (raw):\n%s", string(b))
+		fmt.Fprintln(w, "") // write blank line to response body
 	}
 }
 
@@ -167,6 +217,7 @@ func ThumbnailHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	http.HandleFunc("/albums/", AlbumsHandler)
 	http.HandleFunc("/albums/thumbnail", ThumbnailHandler)
+	http.HandleFunc("/dump", DumpHandler)
 	http.HandleFunc("/kids/", KidsLinksHandler)
 	appengine.Main()
 }

@@ -1,5 +1,3 @@
-application: ian-rose
-version: 1
 api_version: go1
 runtime: go
 
@@ -21,6 +19,9 @@ handlers:
 
 - url: /css
   static_dir: static/css
+
+- url: /dump
+  script: _go_app
 
 - url: /kids(.*)
   script: _go_app
