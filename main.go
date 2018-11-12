@@ -152,6 +152,34 @@ func KidsLinksHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func ProxyHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := appengine.NewContext(r)
+
+	dst := strings.TrimSpace(r.URL.Query().Get("url"))
+	if dst == "" {
+		HttpError(ctx, w, http.StatusBadRequest, `"url" query param missing`)
+		return
+	}
+
+	rsp, err := urlfetch.Client(ctx).Get(dst)
+	if err != nil {
+		HttpError(ctx, w, http.StatusBadGateway, "failed to fetch %s: %s", dst, err)
+		return
+	}
+	defer DrainAndClose(rsp.Body)
+
+	if err := CheckResponse(rsp); err != nil {
+		HttpError(ctx, w, http.StatusBadGateway, "failed to fetch %s: %s", dst, err)
+		return
+	}
+
+	for k, v := range rsp.Header {
+		w.Header()[k] = v
+	}
+
+	io.Copy(w, rsp.Body)
+}
+
 func ThumbnailHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := appengine.NewContext(r)
 
@@ -217,7 +245,8 @@ func ThumbnailHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	http.HandleFunc("/albums/", AlbumsHandler)
 	http.HandleFunc("/albums/thumbnail", ThumbnailHandler)
-	http.HandleFunc("/dump", DumpHandler)
+	http.HandleFunc("/test/dump", DumpHandler)
+	http.HandleFunc("/test/proxy", ProxyHandler)
 	http.HandleFunc("/kids/", KidsLinksHandler)
 	appengine.Main()
 }

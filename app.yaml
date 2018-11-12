@@ -20,10 +20,14 @@ handlers:
 - url: /css
   static_dir: static/css
 
-- url: /dump
+- url: /kids(.*)
   script: _go_app
 
-- url: /kids(.*)
+- url: /test/proxy
+  script: _go_app
+  login: admin
+
+- url: /test/(.*)
   script: _go_app
 
 - url: /images
