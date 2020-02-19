@@ -8,13 +8,11 @@ import (
 	"html/template"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
-
-	"google.golang.org/appengine"
-	"google.golang.org/appengine/log"
-	"google.golang.org/appengine/urlfetch"
 )
 
 const (
@@ -36,16 +34,15 @@ type album struct {
 
 // Serves a page that lists all available photo albums.
 func AlbumsHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := appengine.NewContext(r)
-	rsp, err := urlfetch.Client(ctx).Get(AlbumsConfigUrl)
+	rsp, err := http.Get(AlbumsConfigUrl)
 	if err != nil {
-		HttpError(ctx, w, http.StatusInternalServerError, "failed to fetch albums config from dropbox: %s", err)
+		HttpError(w, http.StatusInternalServerError, "failed to fetch albums config from dropbox: %s", err)
 		return
 	}
 	defer DrainAndClose(rsp.Body)
 
 	if err := CheckResponse(rsp); err != nil {
-		HttpError(ctx, w, http.StatusInternalServerError, "failed to fetch albums config from dropbox: %s", err)
+		HttpError(w, http.StatusInternalServerError, "failed to fetch albums config from dropbox: %s", err)
 		return
 	}
 
@@ -54,7 +51,7 @@ func AlbumsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(rsp.Body).Decode(&results); err != nil {
-		HttpError(ctx, w, http.StatusInternalServerError, "failed to json-decode response: %s", err)
+		HttpError(w, http.StatusInternalServerError, "failed to json-decode response: %s", err)
 		return
 	}
 
@@ -63,17 +60,16 @@ func AlbumsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := albumsTemplate.Execute(w, results.Albums); err != nil {
-		HttpError(ctx, w, http.StatusInternalServerError, "failed to render template: %s", err)
+		HttpError(w, http.StatusInternalServerError, "failed to render template: %s", err)
 		return
 	}
 }
 
 func DumpHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := appengine.NewContext(r)
 	w.Header().Set("Content-Type", "text/plain")
 
 	writeIt := func(s string, args ...interface{}) {
-		log.Debugf(ctx, s, args...)
+		log.Printf(s, args...)
 		fmt.Fprintf(w, s+"\n", args...)
 	}
 
@@ -127,70 +123,39 @@ type links struct {
 }
 
 func KidsLinksHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := appengine.NewContext(r)
-	rsp, err := urlfetch.Client(ctx).Get(KidLinksConfigUrl)
+	rsp, err := http.Get(KidLinksConfigUrl)
 	if err != nil {
-		HttpError(ctx, w, http.StatusInternalServerError, "failed to fetch kid links config from dropbox: %s", err)
+		HttpError(w, http.StatusInternalServerError, "failed to fetch kid links config from dropbox: %s", err)
 		return
 	}
 	defer DrainAndClose(rsp.Body)
 
 	if err := CheckResponse(rsp); err != nil {
-		HttpError(ctx, w, http.StatusInternalServerError, "failed to fetch kid links config from dropbox: %s", err)
+		HttpError(w, http.StatusInternalServerError, "failed to fetch kid links config from dropbox: %s", err)
 		return
 	}
 
 	var results links
 	if err := json.NewDecoder(rsp.Body).Decode(&results); err != nil {
-		HttpError(ctx, w, http.StatusInternalServerError, "failed to json-decode response: %s", err)
+		HttpError(w, http.StatusInternalServerError, "failed to json-decode response: %s", err)
 		return
 	}
 
 	if err := kidLinksTemplate.Execute(w, &results); err != nil {
-		HttpError(ctx, w, http.StatusInternalServerError, "failed to render template: %s", err)
+		HttpError(w, http.StatusInternalServerError, "failed to render template: %s", err)
 		return
 	}
-}
-
-func ProxyHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := appengine.NewContext(r)
-
-	dst := strings.TrimSpace(r.URL.Query().Get("url"))
-	if dst == "" {
-		HttpError(ctx, w, http.StatusBadRequest, `"url" query param missing`)
-		return
-	}
-
-	rsp, err := urlfetch.Client(ctx).Get(dst)
-	if err != nil {
-		HttpError(ctx, w, http.StatusBadGateway, "failed to fetch %s: %s", dst, err)
-		return
-	}
-	defer DrainAndClose(rsp.Body)
-
-	if err := CheckResponse(rsp); err != nil {
-		HttpError(ctx, w, http.StatusBadGateway, "failed to fetch %s: %s", dst, err)
-		return
-	}
-
-	for k, v := range rsp.Header {
-		w.Header()[k] = v
-	}
-
-	io.Copy(w, rsp.Body)
 }
 
 func ThumbnailHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := appengine.NewContext(r)
-
 	path := r.URL.Query().Get("path")
 	if path == "" {
-		HttpError(ctx, w, http.StatusBadRequest, "no path query")
+		HttpError(w, http.StatusBadRequest, "no path query")
 		return
 	}
 
 	if !strings.HasPrefix(path, "/photos/") {
-		HttpError(ctx, w, http.StatusBadRequest, "rejecting forbidden path %s", path)
+		HttpError(w, http.StatusBadRequest, "rejecting forbidden path %s", path)
 		return
 	}
 
@@ -206,7 +171,7 @@ func ThumbnailHandler(w http.ResponseWriter, r *http.Request) {
 
 	jstr, err := json.Marshal(&params)
 	if err != nil {
-		HttpError(ctx, w, http.StatusInternalServerError, "failed to json-encode params: %s", err)
+		HttpError(w, http.StatusInternalServerError, "failed to json-encode params: %s", err)
 		return
 	}
 
@@ -214,39 +179,48 @@ func ThumbnailHandler(w http.ResponseWriter, r *http.Request) {
 	qs.Add("arg", string(jstr))
 
 	urls := "https://api-content.dropbox.com/2/files/get_thumbnail?" + qs.Encode()
-	log.Debugf(ctx, "fetching %s", urls)
+	log.Printf("fetching %s", urls)
 
 	req, err := http.NewRequest("GET", urls, nil)
 	if err != nil {
-		HttpError(ctx, w, http.StatusInternalServerError, "failed to make new http request")
+		HttpError(w, http.StatusInternalServerError, "failed to make new http request")
 		return
 	}
 
 	req.Header.Set("Authorization", "Bearer "+DropboxAccessToken)
 
-	rsp, err := urlfetch.Client(ctx).Do(req)
+	rsp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		HttpError(ctx, w, http.StatusInternalServerError, "failed to fetch thumbnail from dropbox: %s", err)
+		HttpError(w, http.StatusInternalServerError, "failed to fetch thumbnail from dropbox: %s", err)
 		return
 	}
 	defer DrainAndClose(rsp.Body)
 
 	if err := CheckResponse(rsp); err != nil {
-		HttpError(ctx, w, http.StatusInternalServerError, "failed to fetch thumbnail from dropbox: %s", err)
+		HttpError(w, http.StatusInternalServerError, "failed to fetch thumbnail from dropbox: %s", err)
 		return
 	}
 
 	w.Header().Set("Content-Type", rsp.Header.Get("Content-Type"))
 	if _, err := io.Copy(w, rsp.Body); err != nil {
-		log.Warningf(ctx, "failed to copy thumbnail body to response stream: %s", err)
+		log.Printf("failed to copy thumbnail body to response stream: %s", err)
 	}
 }
 
 func main() {
 	http.HandleFunc("/albums/", AlbumsHandler)
 	http.HandleFunc("/albums/thumbnail", ThumbnailHandler)
-	http.HandleFunc("/test/dump", DumpHandler)
-	http.HandleFunc("/test/proxy", ProxyHandler)
+	http.HandleFunc("/dump", DumpHandler)
 	http.HandleFunc("/kids/", KidsLinksHandler)
-	appengine.Main()
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+		log.Printf("Defaulting to port %s", port)
+	}
+
+	log.Printf("Listening on port %s", port)
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
+		log.Fatal(err)
+	}
 }

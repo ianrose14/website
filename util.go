@@ -4,11 +4,9 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"strings"
-
-	"golang.org/x/net/context"
-	"google.golang.org/appengine/log"
 )
 
 const (
@@ -98,12 +96,12 @@ func CheckResponse(rsp *http.Response) error {
 	}
 }
 
-func HttpError(ctx context.Context, w http.ResponseWriter, code int, format string, args ...interface{}) {
+func HttpError(w http.ResponseWriter, code int, format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
 	if code < 500 {
-		log.Warningf(ctx, "%s", msg)
+		log.Printf("warning: %s", msg)
 	} else {
-		log.Errorf(ctx, "%s", msg)
+		log.Printf("error: %s", msg)
 	}
 
 	http.Error(w, msg, code)
