@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -87,7 +88,7 @@ func CheckResponse(rsp *http.Response) error {
 	if err != nil {
 		body = []byte("[failed to read body]")
 	}
-	rsp.Body.Close()
+	_ = rsp.Body.Close()
 
 	return &Error{
 		Code:   rsp.StatusCode,
@@ -110,12 +111,15 @@ func HttpError(w http.ResponseWriter, code int, format string, args ...interface
 // DrainAndClose discards any remaining bytes in r, then closes r.
 // You have to read responses fully to properly free up connections.
 // See https://groups.google.com/forum/#!topic/golang-nuts/pP3zyUlbT00
-func DrainAndClose(r io.ReadCloser) error {
-	_, copyErr := io.Copy(ioutil.Discard, r)
-	closeErr := r.Close()
-	if closeErr != nil {
-		return closeErr
+func DrainAndClose(r io.ReadCloser) {
+	_, _ = io.Copy(ioutil.Discard, r)
+	_ = r.Close()
+}
+
+func FileExists(p string) bool {
+	if _, err := os.Stat(p); err == nil {
+		return true
 	} else {
-		return copyErr
+		return false
 	}
 }
