@@ -71,7 +71,7 @@ func (db *FileDatabase) Write(key, value string) error {
 type Activity struct {
 	Name           string  `json:"name"`
 	DistanceMeters float64 `json:"distance"`
-	ElapsedTime    float64 `json:"elapsed_time"`
+	MovingTime     float64 `json:"moving_time"`
 	Type           string  `json:"type"`
 	StartDate      string  `json:"start_date"`
 }
@@ -144,7 +144,7 @@ func main() {
 		}
 
 		fmt.Printf("%s: %.1fK (%.1f miles) in %s on %s\n", activity.Name, activity.DistanceMeters/1000.,
-			activity.Miles(), formatSeconds(activity.ElapsedTime), activity.StartDate)
+			activity.Miles(), formatSeconds(activity.MovingTime), activity.StartDate)
 	}
 }
 
