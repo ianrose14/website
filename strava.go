@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -12,11 +13,18 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 const (
 	StravaClientId = "59096"
+
+	defaultGoalMiles = 250
+)
+
+var (
+	ErrNeedsAuth = errors.New("needs auth")
 )
 
 type KVDB interface {
@@ -68,6 +76,24 @@ func (db *FileDatabase) Write(key, value string) error {
 	return ioutil.WriteFile(db.filepath, contents, 0644)
 }
 
+type MemoryDatabase struct {
+	vals map[string]string
+	mu   sync.Mutex
+}
+
+func (db *MemoryDatabase) Read(key string) (string, error) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	return db.vals[key], nil
+}
+
+func (db *MemoryDatabase) Write(key, value string) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	db.vals[key] = value
+	return nil
+}
+
 type Activity struct {
 	Name           string  `json:"name"`
 	DistanceMeters float64 `json:"distance"`
@@ -85,43 +111,31 @@ type ProfileInfo struct {
 	ProfileMedium string `json:"profile_medium"`
 }
 
-func main() {
-	now := time.Now()
+type AuthResponse struct {
+	TokenType    string `json:"token_type"`
+	ExpiresAt    int    `json:"expires_at"`
+	RefreshToken string `json:"refresh_token"`
+	AccessToken  string `json:"access_token"`
+}
 
+func stravaCliMain() {
 	doAuth := flag.Bool("auth", false, "do auth flow instead of normal stuff")
-	year := flag.Int("year", now.Year(), "which year")
-	dayOfYear := flag.Int("doy", now.YearDay(), "which day-of-year")
-	goalMiles := flag.Float64("miles", 250, "goal in miles")
+	fDayOfYear := flag.Int("doy", time.Now().YearDay(), "which day-of-year")
+	fGoalMiles := flag.Float64("miles", defaultGoalMiles, "goal in miles")
 	flag.Parse()
 
 	if *doAuth {
-		doAuthFlow()
-		return
+		if err := doAuthFlow(); err != nil {
+			log.Fatalf("failed auth flow: %s", err)
+		}
 	}
 
+	scaledGoalMiles := *fGoalMiles * float64(*fDayOfYear) / 365
 	db := &FileDatabase{filepath: "strava.db"}
 
-	accessToken, err := readAccessToken(db)
+	activities, err := doStravaQuery(scaledGoalMiles, *fDayOfYear, db)
 	if err != nil {
-		log.Fatalf("failed to read access token: %s", err)
-	}
-
-	scaledGoalMiles := *goalMiles * float64(*dayOfYear) / 365
-
-	prof, err := getProfile(accessToken)
-	if err != nil {
-		log.Fatalf("failed to get profile info: %s", err)
-	}
-
-	start := time.Date(*year, time.January, 1, 0, 0, 0, 0, time.UTC)
-	finish := start.AddDate(0, 0, *dayOfYear) // finish is intentionally midnight at the END of the day
-
-	log.Printf("whoami?  %s!!", prof.Username)
-	log.Printf("Range %s -> %s (scaled goal: %.1f miles)", start, finish, scaledGoalMiles)
-
-	activities, err := getActivities(accessToken, start, finish)
-	if err != nil {
-		log.Fatalf("failed to get activities: %s", err)
+		log.Fatalf("failed: %s", err)
 	}
 
 	var count int
@@ -136,7 +150,6 @@ func main() {
 
 	log.Printf("found %d running activities in this time range, totalling %.1f miles, %.0f%% of goal",
 		count, sumMiles, 100*sumMiles/scaledGoalMiles)
-	fmt.Println("")
 
 	for _, activity := range activities {
 		if activity.Type != "Run" {
@@ -148,14 +161,28 @@ func main() {
 	}
 }
 
+func doStravaQuery(scaledGoalMiles float64, dayOfYear int, db KVDB) ([]Activity, error) {
+	accessToken, err := readAccessToken(db)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read access token: %s", err)
+	}
+
+	start := time.Date(time.Now().Year(), time.January, 1, 0, 0, 0, 0, time.UTC)
+	finish := start.AddDate(0, 0, dayOfYear) // finish is intentionally midnight at the END of the day
+
+	log.Printf("Range %s -> %s (scaled goal: %.1f miles)", start, finish, scaledGoalMiles)
+
+	return getActivities(accessToken, start, finish)
+}
+
 func readAccessToken(db KVDB) (string, error) {
 	// read most recent refresh token
 	refreshToken, err := db.Read("refresh_token")
 	if err != nil {
-		log.Fatalf("failed to read from database: %s", err)
+		return "", fmt.Errorf("failed to read from database: %s", err)
 	}
 	if refreshToken == "" {
-		log.Fatalf("no refresh token found in db")
+		return "", ErrNeedsAuth
 	}
 
 	vals := make(url.Values)
@@ -258,17 +285,31 @@ func formatSeconds(s float64) string {
 	return fmt.Sprintf("%d:%02.0f", minutes, s-float64(60*minutes))
 }
 
-func doAuthFlow() {
-	fmt.Println("Visit: https://www.strava.com/oauth/authorize?client_id=" + StravaClientId + "&response_type=code&redirect_uri=http://localhost/exchange_token&approval_prompt=force&scope=activity:read_all")
+func StravaAuthUrl(hostname string) string {
+	return fmt.Sprintf("https://www.strava.com/oauth/authorize?client_id=" + StravaClientId + "&response_type=code&redirect_uri=https://" + hostname + "/strava/exchange_token/&approval_prompt=force&scope=activity:read_all")
+}
+
+func doAuthFlow() error {
+	fmt.Println("Visit: " + StravaAuthUrl("localhost"))
 
 	fmt.Println("")
 	fmt.Printf("Enter code from redirect URL: ")
 	scanner := bufio.NewScanner(os.Stdin)
 	if !scanner.Scan() {
-		return
+		return errors.New("cancelled")
 	}
 	code := strings.TrimSpace(scanner.Text())
 
+	rsp, err := StravaExchangeToken(code)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("%+v\n", rsp)
+	return nil
+}
+
+func StravaExchangeToken(code string) (*AuthResponse, error) {
 	vals := make(url.Values)
 	vals.Set("client_id", StravaClientId)
 	vals.Set("client_secret", StravaClientSecret)
@@ -277,15 +318,16 @@ func doAuthFlow() {
 
 	rsp, err := http.DefaultClient.PostForm("https://www.strava.com/oauth/token", vals)
 	if err != nil {
-		log.Fatalf("failed to post: %s", err)
+		return nil, fmt.Errorf("failed to post: %s", err)
 	}
 	if err := CheckResponse(rsp); err != nil {
-		log.Fatalf("failed to post: %s", err)
+		return nil, fmt.Errorf("failed to post: %s", err)
 	}
 
-	contents, err := ioutil.ReadAll(rsp.Body)
-	if err != nil {
-		log.Fatalf("failed to read body: %s", err)
+	var authResp AuthResponse
+	if err := json.NewDecoder(rsp.Body).Decode(&authResp); err != nil {
+		return nil, err
 	}
-	fmt.Printf("%s", string(contents))
+
+	return &authResp, nil
 }

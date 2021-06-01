@@ -1,4 +1,4 @@
- package main
+package main
 
 import (
 	"bytes"
@@ -12,7 +12,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -23,6 +25,9 @@ const (
 var (
 	albumsTemplate   = template.Must(template.ParseFiles("templates/albums.html"))
 	kidLinksTemplate = template.Must(template.ParseFiles("templates/kidlinks.html"))
+	stravaTemplate   = template.Must(template.ParseFiles("templates/strava.html"))
+
+	stravaVars = &MemoryDatabase{vals: make(map[string]string)}
 )
 
 type album struct {
@@ -33,7 +38,7 @@ type album struct {
 }
 
 // Serves a page that lists all available photo albums.
-func AlbumsHandler(w http.ResponseWriter, r *http.Request) {
+func AlbumsHandler(w http.ResponseWriter, _ *http.Request) {
 	rsp, err := http.Get(AlbumsConfigUrl)
 	if err != nil {
 		HttpError(w, http.StatusInternalServerError, "failed to fetch albums config from dropbox: %s", err)
@@ -122,7 +127,7 @@ type links struct {
 	} `json:"sections"`
 }
 
-func KidsLinksHandler(w http.ResponseWriter, r *http.Request) {
+func KidsLinksHandler(w http.ResponseWriter, _ *http.Request) {
 	rsp, err := http.Get(KidLinksConfigUrl)
 	if err != nil {
 		HttpError(w, http.StatusInternalServerError, "failed to fetch kid links config from dropbox: %s", err)
@@ -145,6 +150,89 @@ func KidsLinksHandler(w http.ResponseWriter, r *http.Request) {
 		HttpError(w, http.StatusInternalServerError, "failed to render template: %s", err)
 		return
 	}
+}
+
+func StravaHandler(w http.ResponseWriter, r *http.Request) {
+	accessToken, err := readAccessToken(stravaVars)
+	if err != nil {
+		if err == ErrNeedsAuth {
+			http.Redirect(w, r, StravaAuthUrl("www.ianthomasrose.com"), http.StatusTemporaryRedirect)
+			return
+		}
+
+		http.Error(w, fmt.Sprintf("failed to read access token: %s", err), http.StatusInternalServerError)
+		return
+	}
+
+	prof, err := getProfile(accessToken)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to get profile info: %s", err), http.StatusInternalServerError)
+		return
+	}
+
+	dayOfYear := time.Now().YearDay()
+	scaledGoalMiles := defaultGoalMiles * float64(dayOfYear) / 365
+
+	activities, err := doStravaQuery(scaledGoalMiles, dayOfYear, stravaVars)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to query strava: %s", err), http.StatusInternalServerError)
+		return
+	}
+
+	args := struct {
+		Username    string
+		Activities  []string
+		MilesTotal  string
+		Progress    string
+		GaugeRotate int
+	}{
+		Username: prof.Username,
+	}
+
+	var sumMiles float64
+	for _, activity := range activities {
+		if activity.Type != "Run" {
+			continue
+		}
+		secondsPerMile := int64(activity.MovingTime / activity.Miles() + 0.5000001)
+		args.Activities = append(args.Activities,
+			fmt.Sprintf("%s: %.1fK (%.1f miles) in %s (%d:%02d pace) on %s", activity.Name,
+				activity.DistanceMeters/1000., activity.Miles(),
+				formatSeconds(activity.MovingTime), secondsPerMile/60, secondsPerMile % 60,
+				activity.StartDate))
+
+		sumMiles += activity.Miles()
+	}
+
+	progress := 100 * sumMiles / scaledGoalMiles
+
+	args.MilesTotal = fmt.Sprintf("%.1f", sumMiles)
+	args.Progress = fmt.Sprintf("%.0f", progress)
+	args.GaugeRotate = int(90.0 * progress / 100)
+
+	if err := stravaTemplate.Execute(w, &args); err != nil {
+		HttpError(w, http.StatusInternalServerError, "failed to render template: %s", err)
+		return
+	}
+}
+
+func StravaTokenHandler(w http.ResponseWriter, r *http.Request) {
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		return
+	}
+
+	rsp, err := StravaExchangeToken(code)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failure in token exchange: %s", err), http.StatusInternalServerError)
+		return
+	}
+
+	_ = stravaVars.Write("access_token", rsp.AccessToken)
+	_ = stravaVars.Write("expires_at", strconv.Itoa(rsp.ExpiresAt))
+	_ = stravaVars.Write("refresh_token", rsp.RefreshToken)
+
+	http.Redirect(w, r, "/running/", http.StatusTemporaryRedirect)
 }
 
 func ThumbnailHandler(w http.ResponseWriter, r *http.Request) {
@@ -208,10 +296,17 @@ func ThumbnailHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	if os.Getenv("STRAVA_CLI") != "" {
+		stravaCliMain()
+		return
+	}
+
 	http.HandleFunc("/albums/", AlbumsHandler)
 	http.HandleFunc("/albums/thumbnail", ThumbnailHandler)
 	http.HandleFunc("/dump", DumpHandler)
 	http.HandleFunc("/kids/", KidsLinksHandler)
+	http.HandleFunc("/running/", StravaHandler)
+	http.HandleFunc("/strava/exchange_token/", StravaTokenHandler)
 
 	port := os.Getenv("PORT")
 	if port == "" {
