@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -11,50 +12,63 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"cloud.google.com/go/datastore"
 )
 
 const (
 	StravaClientId = "59096"
-
-	defaultGoalMiles = 250
 )
 
 var (
 	ErrNeedsAuth = errors.New("needs auth")
+
+	defaultGoalMiles = map[int]int{
+		2019: 100,
+		2020: 100,
+		2021: 250,
+		2022: 400,
+	}
 )
 
+type StravaTokens struct {
+	AccessToken  string
+	ExpiresAt    time.Time
+	RefreshToken string
+}
+
 type KVDB interface {
-	Read(key string) (string, error)
-	Write(key, value string) error
+	Read(ctx context.Context, key string) (*StravaTokens, error)
+	Write(ctx context.Context, key string, tokens *StravaTokens) error
 }
 
 type FileDatabase struct {
 	filepath string
 }
 
-func (db *FileDatabase) Read(key string) (string, error) {
+func (db *FileDatabase) Read(ctx context.Context, key string) (*StravaTokens, error) {
 	if !FileExists(db.filepath) {
-		return "", nil
+		return nil, nil
 	}
 
 	contents, err := ioutil.ReadFile(db.filepath)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	m := make(map[string]string)
+	m := make(map[string]*StravaTokens)
 	if err := json.Unmarshal(contents, &m); err != nil {
-		return "", err
+		return nil, err
 	}
+
 	return m[key], nil
 }
 
-func (db *FileDatabase) Write(key, value string) error {
-	m := make(map[string]string)
+func (db *FileDatabase) Write(ctx context.Context, key string, tokens *StravaTokens) error {
+	m := make(map[string]*StravaTokens)
 
 	if FileExists(db.filepath) {
 		contents, err := ioutil.ReadFile(db.filepath)
@@ -67,7 +81,7 @@ func (db *FileDatabase) Write(key, value string) error {
 		}
 	}
 
-	m[key] = value
+	m[key] = tokens
 	contents, err := json.Marshal(m)
 	if err != nil {
 		return err
@@ -77,21 +91,43 @@ func (db *FileDatabase) Write(key, value string) error {
 }
 
 type MemoryDatabase struct {
-	vals map[string]string
+	vals map[string]*StravaTokens
 	mu   sync.Mutex
 }
 
-func (db *MemoryDatabase) Read(key string) (string, error) {
+func (db *MemoryDatabase) Read(ctx context.Context, key string) (*StravaTokens, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	return db.vals[key], nil
 }
 
-func (db *MemoryDatabase) Write(key, value string) error {
+func (db *MemoryDatabase) Write(ctx context.Context, key string, tokens *StravaTokens) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	db.vals[key] = value
+	db.vals[key] = tokens
 	return nil
+}
+
+type DatastoreDb struct {
+	client *datastore.Client
+}
+
+func (db *DatastoreDb) Read(ctx context.Context, key string) (*StravaTokens, error) {
+	k := datastore.NameKey("StravaTokens", key, nil)
+	var tokens StravaTokens
+	if err := db.client.Get(ctx, k, &tokens); err != nil {
+		if err == datastore.ErrNoSuchEntity {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &tokens, nil
+}
+
+func (db *DatastoreDb) Write(ctx context.Context, key string, tokens *StravaTokens) error {
+	k := datastore.NameKey("StravaTokens", key, nil)
+	_, err := db.client.Put(ctx, k, tokens)
+	return err
 }
 
 type Activity struct {
@@ -113,7 +149,7 @@ type ProfileInfo struct {
 
 type AuthResponse struct {
 	TokenType    string `json:"token_type"`
-	ExpiresAt    int    `json:"expires_at"`
+	ExpiresAt    int64  `json:"expires_at"`
 	RefreshToken string `json:"refresh_token"`
 	AccessToken  string `json:"access_token"`
 }
@@ -121,7 +157,7 @@ type AuthResponse struct {
 func stravaCliMain() {
 	doAuth := flag.Bool("auth", false, "do auth flow instead of normal stuff")
 	fDayOfYear := flag.Int("doy", time.Now().YearDay(), "which day-of-year")
-	fGoalMiles := flag.Float64("miles", defaultGoalMiles, "goal in miles")
+	fGoalMiles := flag.Float64("miles", 300, "goal in miles")
 	flag.Parse()
 
 	if *doAuth {
@@ -133,7 +169,7 @@ func stravaCliMain() {
 	scaledGoalMiles := *fGoalMiles * float64(*fDayOfYear) / 365
 	db := &FileDatabase{filepath: "strava.db"}
 
-	activities, err := doStravaQuery(scaledGoalMiles, *fDayOfYear, db)
+	activities, err := doStravaQuery(context.Background(), "localuser", scaledGoalMiles, *fDayOfYear, time.Now().Year(), db)
 	if err != nil {
 		log.Fatalf("failed: %s", err)
 	}
@@ -161,13 +197,13 @@ func stravaCliMain() {
 	}
 }
 
-func doStravaQuery(scaledGoalMiles float64, dayOfYear int, db KVDB) ([]Activity, error) {
-	accessToken, err := readAccessToken(db)
+func doStravaQuery(ctx context.Context, sessionId string, scaledGoalMiles float64, dayOfYear, year int, db KVDB) ([]Activity, error) {
+	accessToken, err := readAccessToken(ctx, sessionId, db)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read access token: %s", err)
 	}
 
-	start := time.Date(time.Now().Year(), time.January, 1, 0, 0, 0, 0, time.UTC)
+	start := time.Date(year, time.January, 1, 0, 0, 0, 0, time.UTC)
 	finish := start.AddDate(0, 0, dayOfYear) // finish is intentionally midnight at the END of the day
 
 	log.Printf("Range %s -> %s (scaled goal: %.1f miles)", start, finish, scaledGoalMiles)
@@ -175,13 +211,13 @@ func doStravaQuery(scaledGoalMiles float64, dayOfYear int, db KVDB) ([]Activity,
 	return getActivities(accessToken, start, finish)
 }
 
-func readAccessToken(db KVDB) (string, error) {
+func readAccessToken(ctx context.Context, username string, db KVDB) (string, error) {
 	// read most recent refresh token
-	refreshToken, err := db.Read("refresh_token")
+	tokens, err := db.Read(ctx, username)
 	if err != nil {
 		return "", fmt.Errorf("failed to read from database: %s", err)
 	}
-	if refreshToken == "" {
+	if tokens == nil {
 		return "", ErrNeedsAuth
 	}
 
@@ -189,7 +225,7 @@ func readAccessToken(db KVDB) (string, error) {
 	vals.Set("client_id", StravaClientId)
 	vals.Set("client_secret", StravaClientSecret)
 	vals.Set("grant_type", "refresh_token")
-	vals.Set("refresh_token", refreshToken)
+	vals.Set("refresh_token", tokens.RefreshToken)
 
 	rsp, err := http.DefaultClient.PostForm("https://www.strava.com/api/v3/oauth/token", vals)
 	if err != nil {
@@ -216,14 +252,14 @@ func readAccessToken(db KVDB) (string, error) {
 		return "", fmt.Errorf("unexpected returned TokenType: %q", update.TokenType)
 	}
 
-	if err := db.Write("expires_at", strconv.FormatInt(update.ExpiresAt, 10)); err != nil {
-		return "", fmt.Errorf("failed to write expires_at to db: %s", err)
+	tokens = &StravaTokens{
+		AccessToken:  update.AccessToken,
+		ExpiresAt:    time.Unix(update.ExpiresAt, 0),
+		RefreshToken: update.RefreshToken,
 	}
-	if err := db.Write("access_token", update.AccessToken); err != nil {
-		return "", fmt.Errorf("failed to write access_token to db: %s", err)
-	}
-	if err := db.Write("refresh_token", update.RefreshToken); err != nil {
-		return "", fmt.Errorf("failed to write refresh_token to db: %s", err)
+
+	if err := db.Write(ctx, username, tokens); err != nil {
+		return "", fmt.Errorf("failed to write tokens to db: %s", err)
 	}
 
 	return update.AccessToken, nil
@@ -252,6 +288,7 @@ func getActivities(accessToken string, start, finish time.Time) ([]Activity, err
 		return nil, fmt.Errorf("failed to parse body: %s", err)
 	}
 
+	log.Printf("got %d activities from %s to %s", len(activities), start, finish)
 	return activities, nil
 }
 

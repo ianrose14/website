@@ -22,8 +22,9 @@
         <div style="margin-top: 40px">Hello, {{.Username}}</div>
 
         <div style="margin-top: 30px">
-          Found <em>{{len .Activities}}</em> running activities, totalling <em>{{.MilesTotal}}</em> miles.
-          Relative to the current date, you are at <em>{{.Progress}}%</em> of target pace.
+          Found {{len .Activities}} running activities, totalling {{.MilesTotal}} miles.<br>
+          Goal for this year is {{.MilesYearGoal}}, which scales to {{.MilesScaledGoal}}.<br>
+          Relative to the current date, you are at {{.Progress}}% of target pace.
         </div>
       </div>
 

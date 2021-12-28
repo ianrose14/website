@@ -1,4 +1,4 @@
-runtime: go113
+runtime: go116
 
 handlers:
 - url: /
@@ -36,3 +36,7 @@ handlers:
 
 - url: /talks
   static_dir: talks
+
+- url: /running
+  login: required
+  script: auto

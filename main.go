@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -15,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"cloud.google.com/go/datastore"
 )
 
 const (
@@ -27,7 +30,7 @@ var (
 	kidLinksTemplate = template.Must(template.ParseFiles("templates/kidlinks.html"))
 	stravaTemplate   = template.Must(template.ParseFiles("templates/strava.html"))
 
-	stravaVars = &MemoryDatabase{vals: make(map[string]string)}
+	stravaVars = &MemoryDatabase{vals: make(map[string]*StravaTokens)}
 )
 
 type album struct {
@@ -152,8 +155,28 @@ func KidsLinksHandler(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
-func StravaHandler(w http.ResponseWriter, r *http.Request) {
-	accessToken, err := readAccessToken(stravaVars)
+func StravaHandler(w http.ResponseWriter, r *http.Request, db KVDB) {
+	year := time.Now().Year()
+	if s := r.URL.Query().Get("year"); s != "" {
+		if i, err := strconv.Atoi(s); err == nil {
+			year = i
+		}
+	}
+
+	username := r.URL.Query().Get("username")
+	if username == "" {
+		c, err := r.Cookie("username")
+		if err == nil {
+			username = c.Value
+		}
+	}
+
+	if username == "" {
+		http.Redirect(w, r, StravaAuthUrl("www.ianthomasrose.com"), http.StatusTemporaryRedirect)
+		return
+	}
+
+	accessToken, err := readAccessToken(r.Context(), username, db)
 	if err != nil {
 		if err == ErrNeedsAuth {
 			http.Redirect(w, r, StravaAuthUrl("www.ianthomasrose.com"), http.StatusTemporaryRedirect)
@@ -164,29 +187,39 @@ func StravaHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	prof, err := getProfile(accessToken)
+	profile, err := getProfile(accessToken)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to get profile info: %s", err), http.StatusInternalServerError)
 		return
 	}
 
-	dayOfYear := time.Now().YearDay()
-	scaledGoalMiles := defaultGoalMiles * float64(dayOfYear) / 365
+	http.SetCookie(w, &http.Cookie{
+		Name:    "username",
+		Value:   username,
+		Expires: time.Now().Add(7 * 24 * time.Hour),
+	})
 
-	activities, err := doStravaQuery(scaledGoalMiles, dayOfYear, stravaVars)
+	dayOfYear := time.Now().YearDay()
+	scaledGoalMiles := float64(defaultGoalMiles[year]) * float64(dayOfYear) / 365
+
+	activities, err := doStravaQuery(r.Context(), username, scaledGoalMiles, dayOfYear, year, db)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to query strava: %s", err), http.StatusInternalServerError)
 		return
 	}
 
 	args := struct {
-		Username    string
-		Activities  []string
-		MilesTotal  string
-		Progress    string
-		GaugeRotate int
+		Username        string
+		Activities      []string
+		MilesTotal      string
+		MilesYearGoal   int
+		MilesScaledGoal string
+		Progress        string
+		GaugeRotate     int
 	}{
-		Username: prof.Username,
+		Username:        profile.Username,
+		MilesYearGoal:   defaultGoalMiles[year],
+		MilesScaledGoal: fmt.Sprintf("%.1f", scaledGoalMiles),
 	}
 
 	var sumMiles float64
@@ -194,11 +227,11 @@ func StravaHandler(w http.ResponseWriter, r *http.Request) {
 		if activity.Type != "Run" {
 			continue
 		}
-		secondsPerMile := int64(activity.MovingTime / activity.Miles() + 0.5000001)
+		secondsPerMile := int64(activity.MovingTime/activity.Miles() + 0.5000001)
 		args.Activities = append(args.Activities,
 			fmt.Sprintf("%s: %.1fK (%.1f miles) in %s (%d:%02d pace) on %s", activity.Name,
 				activity.DistanceMeters/1000., activity.Miles(),
-				formatSeconds(activity.MovingTime), secondsPerMile/60, secondsPerMile % 60,
+				formatSeconds(activity.MovingTime), secondsPerMile/60, secondsPerMile%60,
 				activity.StartDate))
 
 		sumMiles += activity.Miles()
@@ -216,7 +249,7 @@ func StravaHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func StravaTokenHandler(w http.ResponseWriter, r *http.Request) {
+func StravaTokenHandler(w http.ResponseWriter, r *http.Request, db KVDB) {
 	code := r.URL.Query().Get("code")
 	if code == "" {
 		return
@@ -228,11 +261,24 @@ func StravaTokenHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = stravaVars.Write("access_token", rsp.AccessToken)
-	_ = stravaVars.Write("expires_at", strconv.Itoa(rsp.ExpiresAt))
-	_ = stravaVars.Write("refresh_token", rsp.RefreshToken)
+	tokens := StravaTokens{
+		AccessToken:  rsp.AccessToken,
+		ExpiresAt:    time.Unix(rsp.ExpiresAt, 0),
+		RefreshToken: rsp.RefreshToken,
+	}
 
-	http.Redirect(w, r, "/running/", http.StatusTemporaryRedirect)
+	profile, err := getProfile(rsp.AccessToken)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to get profile info: %s", err), http.StatusInternalServerError)
+		return
+	}
+
+	if err := db.Write(r.Context(), profile.Username, &tokens); err != nil {
+		http.Error(w, fmt.Sprintf("failure in write tokens to db: %s", err), http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, "/running/?username="+url.QueryEscape(profile.Username)+"&year="+strconv.Itoa(time.Now().Year()), http.StatusTemporaryRedirect)
 }
 
 func ThumbnailHandler(w http.ResponseWriter, r *http.Request) {
@@ -301,12 +347,25 @@ func main() {
 		return
 	}
 
+	client, err := datastore.NewClient(context.Background(), os.Getenv("GOOGLE_CLOUD_PROJECT"))
+	if err != nil {
+		log.Fatalf("failed to connect to datastore: %s", err)
+	}
+
+	ddb := &DatastoreDb{
+		client: client,
+	}
+
 	http.HandleFunc("/albums/", AlbumsHandler)
 	http.HandleFunc("/albums/thumbnail", ThumbnailHandler)
 	http.HandleFunc("/dump", DumpHandler)
 	http.HandleFunc("/kids/", KidsLinksHandler)
-	http.HandleFunc("/running/", StravaHandler)
-	http.HandleFunc("/strava/exchange_token/", StravaTokenHandler)
+	http.HandleFunc("/running/", func(w http.ResponseWriter, r *http.Request) {
+		StravaHandler(w, r, ddb)
+	})
+	http.HandleFunc("/strava/exchange_token/", func(w http.ResponseWriter, r *http.Request) {
+		StravaTokenHandler(w, r, ddb)
+	})
 
 	port := os.Getenv("PORT")
 	if port == "" {
