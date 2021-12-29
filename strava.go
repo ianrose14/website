@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -154,59 +153,11 @@ type AuthResponse struct {
 	AccessToken  string `json:"access_token"`
 }
 
-func stravaCliMain() {
-	doAuth := flag.Bool("auth", false, "do auth flow instead of normal stuff")
-	fDayOfYear := flag.Int("doy", time.Now().YearDay(), "which day-of-year")
-	fGoalMiles := flag.Float64("miles", 300, "goal in miles")
-	flag.Parse()
-
-	if *doAuth {
-		if err := doAuthFlow(); err != nil {
-			log.Fatalf("failed auth flow: %s", err)
-		}
-	}
-
-	scaledGoalMiles := *fGoalMiles * float64(*fDayOfYear) / 365
-	db := &FileDatabase{filepath: "strava.db"}
-
-	activities, err := doStravaQuery(context.Background(), "localuser", scaledGoalMiles, *fDayOfYear, time.Now().Year(), db)
-	if err != nil {
-		log.Fatalf("failed: %s", err)
-	}
-
-	var count int
-	var sumMiles float64
-	for _, activity := range activities {
-		if activity.Type != "Run" {
-			continue
-		}
-		count++
-		sumMiles += activity.Miles()
-	}
-
-	log.Printf("found %d running activities in this time range, totalling %.1f miles, %.0f%% of goal",
-		count, sumMiles, 100*sumMiles/scaledGoalMiles)
-
-	for _, activity := range activities {
-		if activity.Type != "Run" {
-			continue
-		}
-
-		fmt.Printf("%s: %.1fK (%.1f miles) in %s on %s\n", activity.Name, activity.DistanceMeters/1000.,
-			activity.Miles(), formatSeconds(activity.MovingTime), activity.StartDate)
-	}
-}
-
-func doStravaQuery(ctx context.Context, sessionId string, scaledGoalMiles float64, dayOfYear, year int, db KVDB) ([]Activity, error) {
+func doStravaQuery(ctx context.Context, sessionId string, start, finish time.Time, db KVDB) ([]Activity, error) {
 	accessToken, err := readAccessToken(ctx, sessionId, db)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read access token: %s", err)
 	}
-
-	start := time.Date(year, time.January, 1, 0, 0, 0, 0, time.UTC)
-	finish := start.AddDate(0, 0, dayOfYear) // finish is intentionally midnight at the END of the day
-
-	log.Printf("Range %s -> %s (scaled goal: %.1f miles)", start, finish, scaledGoalMiles)
 
 	return getActivities(accessToken, start, finish)
 }

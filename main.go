@@ -199,10 +199,22 @@ func StravaHandler(w http.ResponseWriter, r *http.Request, db KVDB) {
 		Expires: time.Now().Add(7 * 24 * time.Hour),
 	})
 
-	dayOfYear := time.Now().YearDay()
-	scaledGoalMiles := float64(defaultGoalMiles[year]) * float64(dayOfYear) / 365
+	now := time.Now()
+	goalMiles := defaultGoalMiles[year]
+	queryStart := time.Date(year, time.January, 1, 0, 0, 0, 0, time.UTC)
 
-	activities, err := doStravaQuery(r.Context(), username, scaledGoalMiles, dayOfYear, year, db)
+	var scaledGoalMiles float64
+	var queryEnd time.Time
+
+	if now.Year() == year {
+		scaledGoalMiles = float64(goalMiles) * float64(now.YearDay()) / 365
+		queryEnd = queryStart.AddDate(0, 0, now.YearDay()) // finish is intentionally midnight at the END of the day
+	} else {
+		scaledGoalMiles = float64(goalMiles)
+		queryEnd = time.Date(year+1, time.January, 1, 0, 0, 0, 0, now.Location()) // Midnight, start of new years day
+	}
+
+	activities, err := doStravaQuery(r.Context(), username, queryStart, queryEnd, db)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to query strava: %s", err), http.StatusInternalServerError)
 		return
@@ -218,7 +230,7 @@ func StravaHandler(w http.ResponseWriter, r *http.Request, db KVDB) {
 		GaugeRotate     int
 	}{
 		Username:        profile.Username,
-		MilesYearGoal:   defaultGoalMiles[year],
+		MilesYearGoal:   goalMiles,
 		MilesScaledGoal: fmt.Sprintf("%.1f", scaledGoalMiles),
 	}
 
@@ -342,11 +354,6 @@ func ThumbnailHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	if os.Getenv("STRAVA_CLI") != "" {
-		stravaCliMain()
-		return
-	}
-
 	client, err := datastore.NewClient(context.Background(), os.Getenv("GOOGLE_CLOUD_PROJECT"))
 	if err != nil {
 		log.Fatalf("failed to connect to datastore: %s", err)
