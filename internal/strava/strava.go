@@ -1,8 +1,8 @@
-package main
+package strava
 
 import (
-	"bufio"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,16 +10,11 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"os"
-	"strings"
 	"sync"
 	"time"
 
-	"cloud.google.com/go/datastore"
-)
-
-const (
-	StravaClientId = "59096"
+	"github.com/ianrose14/website/internal"
+	"github.com/ianrose14/website/internal/storage"
 )
 
 var (
@@ -34,23 +29,23 @@ var (
 	}
 )
 
-type StravaTokens struct {
-	AccessToken  string
-	ExpiresAt    time.Time
-	RefreshToken string
+type ApiParams struct {
+	ClientId     string
+	ClientSecret string
+	Hostname     string
 }
 
 type KVDB interface {
-	Read(ctx context.Context, key string) (*StravaTokens, error)
-	Write(ctx context.Context, key string, tokens *StravaTokens) error
+	Read(ctx context.Context, username string) (*storage.FetchStravaTokensRow, error)
+	Write(ctx context.Context, tokens *storage.InsertStravaTokensParams) error
 }
 
 type FileDatabase struct {
 	filepath string
 }
 
-func (db *FileDatabase) Read(ctx context.Context, key string) (*StravaTokens, error) {
-	if !FileExists(db.filepath) {
+func (db *FileDatabase) Read(_ context.Context, key string) (*storage.FetchStravaTokensRow, error) {
+	if !internal.FileExists(db.filepath) {
 		return nil, nil
 	}
 
@@ -59,7 +54,7 @@ func (db *FileDatabase) Read(ctx context.Context, key string) (*StravaTokens, er
 		return nil, err
 	}
 
-	m := make(map[string]*StravaTokens)
+	m := make(map[string]*storage.FetchStravaTokensRow)
 	if err := json.Unmarshal(contents, &m); err != nil {
 		return nil, err
 	}
@@ -67,10 +62,10 @@ func (db *FileDatabase) Read(ctx context.Context, key string) (*StravaTokens, er
 	return m[key], nil
 }
 
-func (db *FileDatabase) Write(ctx context.Context, key string, tokens *StravaTokens) error {
-	m := make(map[string]*StravaTokens)
+func (db *FileDatabase) Write(_ context.Context, key string, tokens *storage.FetchStravaTokensRow) error {
+	m := make(map[string]*storage.FetchStravaTokensRow)
 
-	if FileExists(db.filepath) {
+	if internal.FileExists(db.filepath) {
 		contents, err := ioutil.ReadFile(db.filepath)
 		if err != nil {
 			return err
@@ -91,43 +86,50 @@ func (db *FileDatabase) Write(ctx context.Context, key string, tokens *StravaTok
 }
 
 type MemoryDatabase struct {
-	vals map[string]*StravaTokens
+	vals map[string]*storage.FetchStravaTokensRow
 	mu   sync.Mutex
 }
 
-func (db *MemoryDatabase) Read(ctx context.Context, key string) (*StravaTokens, error) {
+func (db *MemoryDatabase) Read(_ context.Context, username string) (*storage.FetchStravaTokensRow, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	return db.vals[key], nil
+	return db.vals[username], nil
 }
 
-func (db *MemoryDatabase) Write(ctx context.Context, key string, tokens *StravaTokens) error {
+func (db *MemoryDatabase) Write(_ context.Context, tokens *storage.InsertStravaTokensParams) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	db.vals[key] = tokens
+	db.vals[tokens.Username] = &storage.FetchStravaTokensRow{
+		AccessToken:  tokens.AccessToken,
+		RefreshToken: tokens.RefreshToken,
+		CreatedTime:  time.Now(),
+		ExpiresAt:    tokens.ExpiresAt,
+	}
 	return nil
 }
 
-type DatastoreDb struct {
-	client *datastore.Client
+type SqliteDb struct {
+	query *storage.Queries
 }
 
-func (db *DatastoreDb) Read(ctx context.Context, key string) (*StravaTokens, error) {
-	k := datastore.NameKey("StravaTokens", key, nil)
-	var tokens StravaTokens
-	if err := db.client.Get(ctx, k, &tokens); err != nil {
-		if err == datastore.ErrNoSuchEntity {
+func NewSqliteDb(db *sql.DB) KVDB {
+	return &SqliteDb{query: storage.New(db)}
+}
+
+func (db *SqliteDb) Read(ctx context.Context, username string) (*storage.FetchStravaTokensRow, error) {
+	row, err := db.query.FetchStravaTokens(ctx, username)
+	if err != nil {
+		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, err
 	}
-	return &tokens, nil
+
+	return &row, nil
 }
 
-func (db *DatastoreDb) Write(ctx context.Context, key string, tokens *StravaTokens) error {
-	k := datastore.NameKey("StravaTokens", key, nil)
-	_, err := db.client.Put(ctx, k, tokens)
-	return err
+func (db *SqliteDb) Write(ctx context.Context, tokens *storage.InsertStravaTokensParams) error {
+	return db.query.InsertStravaTokens(ctx, *tokens)
 }
 
 type Activity struct {
@@ -154,8 +156,8 @@ type AuthResponse struct {
 	AccessToken  string `json:"access_token"`
 }
 
-func doStravaQuery(ctx context.Context, sessionId string, start, finish time.Time, db KVDB) ([]Activity, error) {
-	accessToken, err := readAccessToken(ctx, sessionId, db)
+func doStravaQuery(ctx context.Context, sessionId string, start, finish time.Time, db KVDB, account *ApiParams) ([]Activity, error) {
+	accessToken, err := readAccessToken(ctx, sessionId, db, account)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read access token: %s", err)
 	}
@@ -163,7 +165,7 @@ func doStravaQuery(ctx context.Context, sessionId string, start, finish time.Tim
 	return getActivities(accessToken, start, finish)
 }
 
-func readAccessToken(ctx context.Context, username string, db KVDB) (string, error) {
+func readAccessToken(ctx context.Context, username string, db KVDB, account *ApiParams) (string, error) {
 	// read most recent refresh token
 	tokens, err := db.Read(ctx, username)
 	if err != nil {
@@ -174,8 +176,8 @@ func readAccessToken(ctx context.Context, username string, db KVDB) (string, err
 	}
 
 	vals := make(url.Values)
-	vals.Set("client_id", StravaClientId)
-	vals.Set("client_secret", StravaClientSecret)
+	vals.Set("client_id", account.ClientId)
+	vals.Set("client_secret", account.ClientSecret)
 	vals.Set("grant_type", "refresh_token")
 	vals.Set("refresh_token", tokens.RefreshToken)
 
@@ -183,7 +185,7 @@ func readAccessToken(ctx context.Context, username string, db KVDB) (string, err
 	if err != nil {
 		return "", fmt.Errorf("failed to post: %s", err)
 	}
-	if err := CheckResponse(rsp); err != nil {
+	if err := internal.CheckResponse(rsp); err != nil {
 		return "", fmt.Errorf("failed to post: %s", err)
 	}
 
@@ -198,23 +200,57 @@ func readAccessToken(ctx context.Context, username string, db KVDB) (string, err
 	if err := json.NewDecoder(rsp.Body).Decode(&update); err != nil {
 		return "", fmt.Errorf("failed to parse response: %s", err)
 	}
-	DrainAndClose(rsp.Body)
+	internal.DrainAndClose(rsp.Body)
 
 	if update.TokenType != "Bearer" {
 		return "", fmt.Errorf("unexpected returned TokenType: %q", update.TokenType)
 	}
 
-	tokens = &StravaTokens{
+	arg := storage.InsertStravaTokensParams{
+		Username:     username,
 		AccessToken:  update.AccessToken,
-		ExpiresAt:    time.Unix(update.ExpiresAt, 0),
 		RefreshToken: update.RefreshToken,
+		CreatedTime:  time.Now(),
+		ExpiresAt:    time.Unix(update.ExpiresAt, 0),
 	}
 
-	if err := db.Write(ctx, username, tokens); err != nil {
+	if err := db.Write(ctx, &arg); err != nil {
 		return "", fmt.Errorf("failed to write tokens to db: %s", err)
 	}
 
 	return update.AccessToken, nil
+}
+
+func exchangeToken(code string, account *ApiParams) (*AuthResponse, error) {
+	vals := make(url.Values)
+	vals.Set("client_id", account.ClientId)
+	vals.Set("client_secret", account.ClientSecret)
+	vals.Set("code", code)
+	vals.Set("grant_type", "authorization_code")
+
+	rsp, err := http.DefaultClient.PostForm("https://www.strava.com/oauth/token", vals)
+	if err != nil {
+		return nil, fmt.Errorf("failed to post: %s", err)
+	}
+	if err := internal.CheckResponse(rsp); err != nil {
+		return nil, fmt.Errorf("failed to post: %s", err)
+	}
+
+	var authResp AuthResponse
+	if err := json.NewDecoder(rsp.Body).Decode(&authResp); err != nil {
+		return nil, err
+	}
+
+	return &authResp, nil
+}
+
+func formatSeconds(s float64) string {
+	minutes := int(s / 60.)
+	return fmt.Sprintf("%d:%02.0f", minutes, s-float64(60*minutes))
+}
+
+func getAuthUrl(account *ApiParams) string {
+	return fmt.Sprintf("https://www.strava.com/oauth/authorize?client_id=" + account.ClientId + "&response_type=code&redirect_uri=https://" + account.Hostname + "/strava/exchange_token/&approval_prompt=force&scope=activity:read_all")
 }
 
 func getActivities(accessToken string, start, finish time.Time) ([]Activity, error) {
@@ -229,9 +265,9 @@ func getActivities(accessToken string, start, finish time.Time) ([]Activity, err
 	if err != nil {
 		return nil, fmt.Errorf("failed to get: %s", err)
 	}
-	defer DrainAndClose(rsp.Body)
+	defer internal.DrainAndClose(rsp.Body)
 
-	if err := CheckResponse(rsp); err != nil {
+	if err := internal.CheckResponse(rsp); err != nil {
 		return nil, fmt.Errorf("failed to get: %s", err)
 	}
 
@@ -255,9 +291,9 @@ func getProfile(accessToken string) (*ProfileInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get: %s", err)
 	}
-	defer DrainAndClose(rsp.Body)
+	defer internal.DrainAndClose(rsp.Body)
 
-	if err := CheckResponse(rsp); err != nil {
+	if err := internal.CheckResponse(rsp); err != nil {
 		return nil, fmt.Errorf("failed to get: %s", err)
 	}
 
@@ -267,56 +303,4 @@ func getProfile(accessToken string) (*ProfileInfo, error) {
 	}
 
 	return &profile, nil
-}
-
-func formatSeconds(s float64) string {
-	minutes := int(s / 60.)
-	return fmt.Sprintf("%d:%02.0f", minutes, s-float64(60*minutes))
-}
-
-func StravaAuthUrl(hostname string) string {
-	return fmt.Sprintf("https://www.strava.com/oauth/authorize?client_id=" + StravaClientId + "&response_type=code&redirect_uri=https://" + hostname + "/strava/exchange_token/&approval_prompt=force&scope=activity:read_all")
-}
-
-func doAuthFlow() error {
-	fmt.Println("Visit: " + StravaAuthUrl("localhost"))
-
-	fmt.Println("")
-	fmt.Printf("Enter code from redirect URL: ")
-	scanner := bufio.NewScanner(os.Stdin)
-	if !scanner.Scan() {
-		return errors.New("cancelled")
-	}
-	code := strings.TrimSpace(scanner.Text())
-
-	rsp, err := StravaExchangeToken(code)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("%+v\n", rsp)
-	return nil
-}
-
-func StravaExchangeToken(code string) (*AuthResponse, error) {
-	vals := make(url.Values)
-	vals.Set("client_id", StravaClientId)
-	vals.Set("client_secret", StravaClientSecret)
-	vals.Set("code", code)
-	vals.Set("grant_type", "authorization_code")
-
-	rsp, err := http.DefaultClient.PostForm("https://www.strava.com/oauth/token", vals)
-	if err != nil {
-		return nil, fmt.Errorf("failed to post: %s", err)
-	}
-	if err := CheckResponse(rsp); err != nil {
-		return nil, fmt.Errorf("failed to post: %s", err)
-	}
-
-	var authResp AuthResponse
-	if err := json.NewDecoder(rsp.Body).Decode(&authResp); err != nil {
-		return nil, err
-	}
-
-	return &authResp, nil
 }
