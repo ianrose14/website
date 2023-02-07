@@ -2,5 +2,8 @@
 
 set -e
 
-gcloud auth login ianrose14@gmail.com
-gcloud --project ian-rose app deploy
+make webapp-linux
+ssh ianrose14@34.66.56.67 mkdir -p config/
+scp config/*  ianrose14@34.66.56.67:config/
+scp scripts/startup.sh ianrose14@34.66.56.67:
+ssh ianrose14@34.66.56.67 bash ./startup.sh
