@@ -7,5 +7,6 @@ on:
 jobs:
   debug:
     name: Debug
+    runs-on: ubuntu-latest
     steps:
       - run: echo 'hi there' && echo ${{ github.event.comment.body }}
