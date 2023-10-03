@@ -7,4 +7,5 @@ on:
 jobs:
   debug:
     name: Debug
-    run: echo 'hi there' && echo ${{ github.event.comment.body }}
+    steps:
+      - run: echo 'hi there' && echo ${{ github.event.comment.body }}
