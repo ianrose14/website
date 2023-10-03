@@ -21,7 +21,7 @@ const (
 )
 
 var (
-	albumsTemplate = template.Must(template.ParseFiles("templates/albums.html"))
+	albumsTemplate = template.Must(template.ParseFS(templatesFS, "templates/albums.html"))
 )
 
 type album struct {

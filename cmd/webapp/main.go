@@ -8,10 +8,13 @@ import (
 	"flag"
 	"html/template"
 	"io/fs"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/ianrose14/website/internal"
@@ -31,8 +34,11 @@ var (
 	//go:embed talks/*
 	talksFS embed.FS
 
+	//go:embed templates/*
+	templatesFS embed.FS
+
 	//stravaVars = &internal.MemoryDatabase{vals: make(map[string]*internal.StravaTokens)}
-	stravaTemplate = template.Must(template.ParseFiles("templates/strava.html"))
+	stravaTemplate = template.Must(template.ParseFS(templatesFS, "templates/strava.html"))
 )
 
 func init() {
@@ -40,13 +46,29 @@ func init() {
 }
 
 func main() {
-	certsDir := flag.String("certs", "certs", "directory to store letsencrypt certs")
-	dbfile := flag.String("db", "solarsnoop.sqlite", "sqlite database file")
+	certsDir := flag.String("certs", "certs", "Directory to store letsencrypt certs")
+	daemonize := flag.Bool("d", false, "Whether to daemonize on start")
+	dbfile := flag.String("db", "store.sqlite", "sqlite database file")
 	host := flag.String("host", "", "optional hostname for webserver")
+	pidfile := flag.String("pidfile", "", "Optional file to write process ID to")
 	secretsFile := flag.String("secrets", "config/secrets.yaml", "Path to local secrets file")
 	flag.Parse()
 
 	ctx := context.Background()
+
+	s, err := filepath.Abs(*certsDir)
+	if err != nil {
+		log.Fatalf("failed to get absolute path of %q: %+v", *certsDir, err)
+	}
+	certsDir = &s
+
+	if *pidfile != "" {
+		s, err := filepath.Abs(*pidfile)
+		if err != nil {
+			log.Fatalf("failed to get absolute path of %q: %+v", *pidfile, err)
+		}
+		pidfile = &s
+	}
 
 	secrets, err := internal.ParseSecrets(*secretsFile)
 	if err != nil {
@@ -65,6 +87,16 @@ func main() {
 
 	if err := storage.UpsertDatabaseTables(ctx, db); err != nil {
 		log.Fatalf("failed to upsert database tables: %s", err)
+	}
+
+	if *daemonize {
+
+	}
+
+	if *pidfile != "" {
+		if err := ioutil.WriteFile(*pidfile, []byte(strconv.Itoa(os.Getpid())), 0666); err != nil {
+			log.Fatalf("failed to write pidfile: %+v", err)
+		}
 	}
 
 	svr := &server{
