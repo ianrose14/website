@@ -1,0 +1,10 @@
+name: My Comment Tester
+
+on:
+  issue_comment:
+    types: [created, edited]
+
+jobs:
+  debug:
+    name: Debug
+    run: echo 'hi there' && echo ${{ github.event.comment.body }}
