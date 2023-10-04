@@ -333,6 +333,7 @@ func ThumbnailHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// NB: DropboxAccessToken comes from secrets.go (not checked into git)
 	req.Header.Set("Authorization", "Bearer "+DropboxAccessToken)
 
 	rsp, err := http.DefaultClient.Do(req)
