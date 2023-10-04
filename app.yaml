@@ -1,5 +1,4 @@
-api_version: go1
-runtime: go
+runtime: go116
 
 handlers:
 - url: /
@@ -11,7 +10,7 @@ handlers:
   upload: favicon.ico
 
 - url: /albums(.*)
-  script: _go_app
+  script: auto
 
 - url: /robots.txt
   static_files: robots.txt
@@ -20,18 +19,14 @@ handlers:
 - url: /css
   static_dir: static/css
 
-- url: /kids(.*)
-  script: _go_app
-
-- url: /test/proxy
-  script: _go_app
-  login: admin
-
-- url: /test/(.*)
-  script: _go_app
+- url: /dump
+  script: auto
 
 - url: /images
   static_dir: static/images
+
+- url: /kids(.*)
+  script: auto
 
 - url: /js
   static_dir: static/js
@@ -41,3 +36,7 @@ handlers:
 
 - url: /talks
   static_dir: talks
+
+- url: /running
+  login: required
+  script: auto

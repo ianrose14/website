@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <link type="text/css" href="/css/strava.css" rel="stylesheet" media="screen">
+    <meta name="viewport" content="width=400, initial-scale=1">
+
+    <script type="text/javascript">
+      let _fs_debug = false;
+      let _fs_host='staging.fullstory.com',_fs_org='ianthomasrose.com';
+      (function(m,n,e,t,l,o,g,y){
+        g=m[e]=function(a,b){g.q?g.q.push([a,b]):g._api(a,b);};g.q=[];
+        o=n.createElement(t);o.async=1;o.src='https://'+_fs_host+'/s/fs.js';
+        y=n.getElementsByTagName(t)[0];y.parentNode.insertBefore(o,y);
+        g.identify=function(i,v){g(l,{uid:i});if(v)g(l,v)};g.setUserVars=function(v){FS(l,v)};
+        g.setSessionVars=function(v){FS('session',v)};g.setPageVars=function(v){FS('page',v)};
+      })(window,document,'FS','script','user');
+    </script>
+  </head>
+  <body>
+    <div id="main-content">
+      <div id="intro">
+        <div style="margin-top: 40px">Hello, {{.Username}}</div>
+
+        <div style="margin-top: 30px">
+          Found {{len .Activities}} running activities, totalling {{.MilesTotal}} miles.<br>
+          Goal for this year is {{.MilesYearGoal}}, which scales to {{.MilesScaledGoal}}.<br>
+          Relative to the current date, you are at {{.Progress}}% of target pace.
+        </div>
+      </div>
+
+      <div class="sc-gauge">
+        <div class="sc-background">
+          <div class="sc-percentage"></div>
+          <div class="sc-mask"></div>
+          <span class="sc-value">{{.Progress}}%</span>
+        </div>
+        <span class="sc-min">0%</span>
+        <span class="sc-max">200%</span>
+      </div>
+
+      <div>
+        <ol>
+{{ range .Activities }}
+        <li>{{.}}</li>
+{{ end }}
+        </ol>
+      </div>
+    </div>
+
+    <script>
+      document.getElementsByClassName("sc-percentage").item(0).style.transform = 'rotate({{.GaugeRotate}}deg)';
+      if ({{.GaugeRotate}} >= 90) {
+        document.getElementsByClassName("sc-percentage").item(0).style.backgroundColor = '#18A551';
+      } else {
+        document.getElementsByClassName("sc-percentage").item(0).style.backgroundColor = '#CED82F';
+      }
+    </script>
+  </body>
+</html>

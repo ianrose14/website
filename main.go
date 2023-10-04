@@ -2,19 +2,22 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
+	"time"
 
-	"google.golang.org/appengine"
-	"google.golang.org/appengine/log"
-	"google.golang.org/appengine/urlfetch"
+	"cloud.google.com/go/datastore"
 )
 
 const (
@@ -25,6 +28,9 @@ const (
 var (
 	albumsTemplate   = template.Must(template.ParseFiles("templates/albums.html"))
 	kidLinksTemplate = template.Must(template.ParseFiles("templates/kidlinks.html"))
+	stravaTemplate   = template.Must(template.ParseFiles("templates/strava.html"))
+
+	stravaVars = &MemoryDatabase{vals: make(map[string]*StravaTokens)}
 )
 
 type album struct {
@@ -35,17 +41,16 @@ type album struct {
 }
 
 // Serves a page that lists all available photo albums.
-func AlbumsHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := appengine.NewContext(r)
-	rsp, err := urlfetch.Client(ctx).Get(AlbumsConfigUrl)
+func AlbumsHandler(w http.ResponseWriter, _ *http.Request) {
+	rsp, err := http.Get(AlbumsConfigUrl)
 	if err != nil {
-		HttpError(ctx, w, http.StatusInternalServerError, "failed to fetch albums config from dropbox: %s", err)
+		HttpError(w, http.StatusInternalServerError, "failed to fetch albums config from dropbox: %s", err)
 		return
 	}
 	defer DrainAndClose(rsp.Body)
 
 	if err := CheckResponse(rsp); err != nil {
-		HttpError(ctx, w, http.StatusInternalServerError, "failed to fetch albums config from dropbox: %s", err)
+		HttpError(w, http.StatusInternalServerError, "failed to fetch albums config from dropbox: %s", err)
 		return
 	}
 
@@ -54,7 +59,7 @@ func AlbumsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(rsp.Body).Decode(&results); err != nil {
-		HttpError(ctx, w, http.StatusInternalServerError, "failed to json-decode response: %s", err)
+		HttpError(w, http.StatusInternalServerError, "failed to json-decode response: %s", err)
 		return
 	}
 
@@ -63,17 +68,16 @@ func AlbumsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := albumsTemplate.Execute(w, results.Albums); err != nil {
-		HttpError(ctx, w, http.StatusInternalServerError, "failed to render template: %s", err)
+		HttpError(w, http.StatusInternalServerError, "failed to render template: %s", err)
 		return
 	}
 }
 
 func DumpHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := appengine.NewContext(r)
 	w.Header().Set("Content-Type", "text/plain")
 
 	writeIt := func(s string, args ...interface{}) {
-		log.Debugf(ctx, s, args...)
+		log.Printf(s, args...)
 		fmt.Fprintf(w, s+"\n", args...)
 	}
 
@@ -126,71 +130,178 @@ type links struct {
 	} `json:"sections"`
 }
 
-func KidsLinksHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := appengine.NewContext(r)
-	rsp, err := urlfetch.Client(ctx).Get(KidLinksConfigUrl)
+func KidsLinksHandler(w http.ResponseWriter, _ *http.Request) {
+	rsp, err := http.Get(KidLinksConfigUrl)
 	if err != nil {
-		HttpError(ctx, w, http.StatusInternalServerError, "failed to fetch kid links config from dropbox: %s", err)
+		HttpError(w, http.StatusInternalServerError, "failed to fetch kid links config from dropbox: %s", err)
 		return
 	}
 	defer DrainAndClose(rsp.Body)
 
 	if err := CheckResponse(rsp); err != nil {
-		HttpError(ctx, w, http.StatusInternalServerError, "failed to fetch kid links config from dropbox: %s", err)
+		HttpError(w, http.StatusInternalServerError, "failed to fetch kid links config from dropbox: %s", err)
 		return
 	}
 
 	var results links
 	if err := json.NewDecoder(rsp.Body).Decode(&results); err != nil {
-		HttpError(ctx, w, http.StatusInternalServerError, "failed to json-decode response: %s", err)
+		HttpError(w, http.StatusInternalServerError, "failed to json-decode response: %s", err)
 		return
 	}
 
 	if err := kidLinksTemplate.Execute(w, &results); err != nil {
-		HttpError(ctx, w, http.StatusInternalServerError, "failed to render template: %s", err)
+		HttpError(w, http.StatusInternalServerError, "failed to render template: %s", err)
 		return
 	}
 }
 
-func ProxyHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := appengine.NewContext(r)
+func StravaHandler(w http.ResponseWriter, r *http.Request, db KVDB) {
+	year := time.Now().Year()
+	if s := r.URL.Query().Get("year"); s != "" {
+		if i, err := strconv.Atoi(s); err == nil {
+			year = i
+		}
+	}
 
-	dst := strings.TrimSpace(r.URL.Query().Get("url"))
-	if dst == "" {
-		HttpError(ctx, w, http.StatusBadRequest, `"url" query param missing`)
+	username := r.URL.Query().Get("username")
+	if username == "" {
+		c, err := r.Cookie("username")
+		if err == nil {
+			username = c.Value
+		}
+	}
+
+	if username == "" {
+		http.Redirect(w, r, StravaAuthUrl("www.ianthomasrose.com"), http.StatusTemporaryRedirect)
 		return
 	}
 
-	rsp, err := urlfetch.Client(ctx).Get(dst)
+	accessToken, err := readAccessToken(r.Context(), username, db)
 	if err != nil {
-		HttpError(ctx, w, http.StatusBadGateway, "failed to fetch %s: %s", dst, err)
+		if err == ErrNeedsAuth {
+			http.Redirect(w, r, StravaAuthUrl("www.ianthomasrose.com"), http.StatusTemporaryRedirect)
+			return
+		}
+
+		http.Error(w, fmt.Sprintf("failed to read access token: %s", err), http.StatusInternalServerError)
 		return
 	}
-	defer DrainAndClose(rsp.Body)
 
-	if err := CheckResponse(rsp); err != nil {
-		HttpError(ctx, w, http.StatusBadGateway, "failed to fetch %s: %s", dst, err)
+	profile, err := getProfile(accessToken)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to get profile info: %s", err), http.StatusInternalServerError)
 		return
 	}
 
-	for k, v := range rsp.Header {
-		w.Header()[k] = v
+	http.SetCookie(w, &http.Cookie{
+		Name:    "username",
+		Value:   username,
+		Expires: time.Now().Add(7 * 24 * time.Hour),
+	})
+
+	now := time.Now()
+	goalMiles := defaultGoalMiles[year]
+	queryStart := time.Date(year, time.January, 1, 0, 0, 0, 0, time.UTC)
+
+	var scaledGoalMiles float64
+	var queryEnd time.Time
+
+	if now.Year() == year {
+		scaledGoalMiles = float64(goalMiles) * float64(now.YearDay()) / 365
+		queryEnd = queryStart.AddDate(0, 0, now.YearDay()) // finish is intentionally midnight at the END of the day
+	} else {
+		scaledGoalMiles = float64(goalMiles)
+		queryEnd = time.Date(year+1, time.January, 1, 0, 0, 0, 0, now.Location()) // Midnight, start of new years day
 	}
 
-	io.Copy(w, rsp.Body)
+	activities, err := doStravaQuery(r.Context(), username, queryStart, queryEnd, db)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to query strava: %s", err), http.StatusInternalServerError)
+		return
+	}
+
+	args := struct {
+		Username        string
+		Activities      []string
+		MilesTotal      string
+		MilesYearGoal   int
+		MilesScaledGoal string
+		Progress        string
+		GaugeRotate     int
+	}{
+		Username:        profile.Username,
+		MilesYearGoal:   goalMiles,
+		MilesScaledGoal: fmt.Sprintf("%.1f", scaledGoalMiles),
+	}
+
+	var sumMiles float64
+	for _, activity := range activities {
+		if activity.Type != "Run" {
+			continue
+		}
+		secondsPerMile := int64(activity.MovingTime/activity.Miles() + 0.5000001)
+		args.Activities = append(args.Activities,
+			fmt.Sprintf("%s: %.1fK (%.1f miles) in %s (%d:%02d pace) on %s", activity.Name,
+				activity.DistanceMeters/1000., activity.Miles(),
+				formatSeconds(activity.MovingTime), secondsPerMile/60, secondsPerMile%60,
+				activity.StartDate))
+
+		sumMiles += activity.Miles()
+	}
+
+	progress := 100 * sumMiles / scaledGoalMiles
+
+	args.MilesTotal = fmt.Sprintf("%.1f", sumMiles)
+	args.Progress = fmt.Sprintf("%.0f", progress)
+	args.GaugeRotate = int(90.0 * progress / 100)
+
+	if err := stravaTemplate.Execute(w, &args); err != nil {
+		HttpError(w, http.StatusInternalServerError, "failed to render template: %s", err)
+		return
+	}
+}
+
+func StravaTokenHandler(w http.ResponseWriter, r *http.Request, db KVDB) {
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		return
+	}
+
+	rsp, err := StravaExchangeToken(code)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failure in token exchange: %s", err), http.StatusInternalServerError)
+		return
+	}
+
+	tokens := StravaTokens{
+		AccessToken:  rsp.AccessToken,
+		ExpiresAt:    time.Unix(rsp.ExpiresAt, 0),
+		RefreshToken: rsp.RefreshToken,
+	}
+
+	profile, err := getProfile(rsp.AccessToken)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to get profile info: %s", err), http.StatusInternalServerError)
+		return
+	}
+
+	if err := db.Write(r.Context(), profile.Username, &tokens); err != nil {
+		http.Error(w, fmt.Sprintf("failure in write tokens to db: %s", err), http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, "/running/?username="+url.QueryEscape(profile.Username)+"&year="+strconv.Itoa(time.Now().Year()), http.StatusTemporaryRedirect)
 }
 
 func ThumbnailHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := appengine.NewContext(r)
-
 	path := r.URL.Query().Get("path")
 	if path == "" {
-		HttpError(ctx, w, http.StatusBadRequest, "no path query")
+		HttpError(w, http.StatusBadRequest, "no path query")
 		return
 	}
 
 	if !strings.HasPrefix(path, "/photos/") {
-		HttpError(ctx, w, http.StatusBadRequest, "rejecting forbidden path %s", path)
+		HttpError(w, http.StatusBadRequest, "rejecting forbidden path %s", path)
 		return
 	}
 
@@ -206,7 +317,7 @@ func ThumbnailHandler(w http.ResponseWriter, r *http.Request) {
 
 	jstr, err := json.Marshal(&params)
 	if err != nil {
-		HttpError(ctx, w, http.StatusInternalServerError, "failed to json-encode params: %s", err)
+		HttpError(w, http.StatusInternalServerError, "failed to json-encode params: %s", err)
 		return
 	}
 
@@ -214,40 +325,64 @@ func ThumbnailHandler(w http.ResponseWriter, r *http.Request) {
 	qs.Add("arg", string(jstr))
 
 	urls := "https://api-content.dropbox.com/2/files/get_thumbnail?" + qs.Encode()
-	log.Debugf(ctx, "fetching %s", urls)
+	log.Printf("fetching %s", urls)
 
 	req, err := http.NewRequest("GET", urls, nil)
 	if err != nil {
-		HttpError(ctx, w, http.StatusInternalServerError, "failed to make new http request")
+		HttpError(w, http.StatusInternalServerError, "failed to make new http request")
 		return
 	}
 
 	// NB: DropboxAccessToken comes from secrets.go (not checked into git)
 	req.Header.Set("Authorization", "Bearer "+DropboxAccessToken)
 
-	rsp, err := urlfetch.Client(ctx).Do(req)
+	rsp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		HttpError(ctx, w, http.StatusInternalServerError, "failed to fetch thumbnail from dropbox: %s", err)
+		HttpError(w, http.StatusInternalServerError, "failed to fetch thumbnail from dropbox: %s", err)
 		return
 	}
 	defer DrainAndClose(rsp.Body)
 
 	if err := CheckResponse(rsp); err != nil {
-		HttpError(ctx, w, http.StatusInternalServerError, "failed to fetch thumbnail from dropbox: %s", err)
+		HttpError(w, http.StatusInternalServerError, "failed to fetch thumbnail from dropbox: %s", err)
 		return
 	}
 
 	w.Header().Set("Content-Type", rsp.Header.Get("Content-Type"))
 	if _, err := io.Copy(w, rsp.Body); err != nil {
-		log.Warningf(ctx, "failed to copy thumbnail body to response stream: %s", err)
+		log.Printf("failed to copy thumbnail body to response stream: %s", err)
 	}
 }
 
 func main() {
+	client, err := datastore.NewClient(context.Background(), os.Getenv("GOOGLE_CLOUD_PROJECT"))
+	if err != nil {
+		log.Fatalf("failed to connect to datastore: %s", err)
+	}
+
+	ddb := &DatastoreDb{
+		client: client,
+	}
+
 	http.HandleFunc("/albums/", AlbumsHandler)
 	http.HandleFunc("/albums/thumbnail", ThumbnailHandler)
-	http.HandleFunc("/test/dump", DumpHandler)
-	http.HandleFunc("/test/proxy", ProxyHandler)
+	http.HandleFunc("/dump", DumpHandler)
 	http.HandleFunc("/kids/", KidsLinksHandler)
-	appengine.Main()
+	http.HandleFunc("/running/", func(w http.ResponseWriter, r *http.Request) {
+		StravaHandler(w, r, ddb)
+	})
+	http.HandleFunc("/strava/exchange_token/", func(w http.ResponseWriter, r *http.Request) {
+		StravaTokenHandler(w, r, ddb)
+	})
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+		log.Printf("Defaulting to port %s", port)
+	}
+
+	log.Printf("Listening on port %s", port)
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
+		log.Fatal(err)
+	}
 }
