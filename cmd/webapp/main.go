@@ -81,6 +81,8 @@ func main() {
 		log.Fatalf("failed to parse secrets: %s", err)
 	}
 
+	log.Printf("hello, world!  v1")
+
 	db, err := sql.Open("sqlite3", "file:"+*dbfile+"?cache=shared")
 	if err != nil {
 		log.Fatalf("failed to open sqlite connection: %s", err)
@@ -96,7 +98,7 @@ func main() {
 	}
 
 	if *daemonize {
-		
+
 	}
 
 	if *pidfile != "" {
