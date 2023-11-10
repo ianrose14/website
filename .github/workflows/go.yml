@@ -24,7 +24,7 @@ jobs:
       run: go test ./...
 
     - name: Setup
-      run: mkdir -p bin/linux && cp bin/webapp bib/linux_amd64/webapp
+      run: mkdir -p bin/linux && cp bin/webapp bin/linux_amd64/webapp
 
     - name: Get shortsha
       id: vars
