@@ -7,7 +7,7 @@ set -e
 
 make webapp-linux
 
-docker buildx build --platform linux/amd64 -t us-central1-docker.pkg.dev/ian-rose/docker-1/webapp:latest .
+docker buildx build --platform linux/amd64 --build-arg BIN=bin/linux_amd64/webapp -t us-central1-docker.pkg.dev/ian-rose/docker-1/webapp:latest .
 #docker build -t us-central1-docker.pkg.dev/ian-rose/docker-1/webapp:latest .
 docker push us-central1-docker.pkg.dev/ian-rose/docker-1/webapp:latest
 
