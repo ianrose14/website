@@ -20,3 +20,6 @@ bin
 .idea
 secrets.yaml
 var
+
+# from docs here: https://github.com/google-github-actions/auth#prerequisites
+gha-creds-*.json
