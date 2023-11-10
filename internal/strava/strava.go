@@ -250,6 +250,11 @@ func formatSeconds(s float64) string {
 }
 
 func getAuthUrl(account *ApiParams) string {
+	host := account.Hostname
+	if host == "" {
+
+	}
+
 	return fmt.Sprintf("https://www.strava.com/oauth/authorize?client_id=" + account.ClientId + "&response_type=code&redirect_uri=https://" + account.Hostname + "/strava/exchange_token/&approval_prompt=force&scope=activity:read_all")
 }
 

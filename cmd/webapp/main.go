@@ -24,6 +24,8 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 )
 
+const inDev = runtime.GOOS == "darwin"
+
 var (
 	//go:embed static/*
 	staticFS embed.FS
@@ -53,6 +55,10 @@ func main() {
 	pidfile := flag.String("pidfile", "", "Optional file to write process ID to")
 	secretsFile := flag.String("secrets", "config/secrets.yaml", "Path to local secrets file")
 	flag.Parse()
+
+	if *host == "" {
+		*host = "localhost"
+	}
 
 	ctx := context.Background()
 
@@ -90,7 +96,7 @@ func main() {
 	}
 
 	if *daemonize {
-
+		
 	}
 
 	if *pidfile != "" {
@@ -108,6 +114,7 @@ func main() {
 	stravaAccount := &strava.ApiParams{
 		ClientId:     secrets.Strava.ClientID,
 		ClientSecret: secrets.Strava.ClientSecret,
+		Hostname:     *host,
 	}
 
 	httpFS := func(files embed.FS, subdir string) http.Handler {
@@ -143,11 +150,6 @@ func main() {
 
 	// TODO: in a handler wrapper, redirect http to https (in production only)
 
-	const inDev = runtime.GOOS == "darwin"
-
-	// when testing locally it doesn't make sense to start
-	// HTTPS server, so only do it in production.
-	// In real code, I control this with -production cmd-line flag
 	if !inDev {
 		if err := os.MkdirAll(*certsDir, 0777); err != nil {
 			log.Fatalf("failed to create certs dir: %s", err)
@@ -156,7 +158,7 @@ func main() {
 		httpsSrv := makeHTTPServer(mux)
 		certManager := &autocert.Manager{
 			Prompt: autocert.AcceptTOS,
-			Email:  "ianrose14+autocert@gmail.com", // NOSUBMIT - replace with alias?
+			Email:  "ianrose14+autocert@gmail.com",
 			HostPolicy: func(ctx context.Context, host string) error {
 				log.Printf("autocert query for host %q", host)
 				return autocert.HostWhitelist("solarsnoop.com", "www.solarsnoop.com")(ctx, host)
