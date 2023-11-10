@@ -32,7 +32,7 @@ jobs:
       with:
         gcloud_service_key: ${{ secrets.GCP_SERVICE_ACCOUNT }}
         registry: us-central1-docker.pkg.dev
-        project_id: ian-rose
-        image_name: us-central1-docker.pkg.dev/ian-rose/docker-1/webapp
+        project_id: ian-rose/docker-1
+        image_name: webapp
         image_tag: latest,${{ steps.vars.outputs.sha_short }}
         build_args: BIN=bin/webapp
