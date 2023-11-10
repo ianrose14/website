@@ -31,7 +31,7 @@ jobs:
       uses: RafikFarhad/push-to-gcr-github-action@v4.1
       with:
         gcloud_service_key: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-        registry: gcr.io
+        registry: us-central1-docker.pkg.dev
         project_id: ian-rose
         image_name: us-central1-docker.pkg.dev/ian-rose/docker-1/webapp
         image_tag: latest,${{ steps.vars.outputs.sha_short }}
