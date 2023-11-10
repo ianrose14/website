@@ -1,4 +1,6 @@
-.PHONY: webapp init
+.PHONY: build webapp init
+
+build: webapp
 
 webapp:
 	@mkdir -p bin
