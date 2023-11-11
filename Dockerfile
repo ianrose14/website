@@ -1,4 +1,4 @@
-FROM debian:bullseye-slim
+FROM ubuntu:22.04
 ARG BIN
 WORKDIR /root/
 RUN apt-get update
