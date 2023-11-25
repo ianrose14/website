@@ -49,9 +49,8 @@ func init() {
 
 func main() {
 	certsDir := flag.String("certs", "certs", "Directory to store letsencrypt certs")
-	daemonize := flag.Bool("d", false, "Whether to daemonize on start")
 	dbfile := flag.String("db", "store.sqlite", "sqlite database file")
-	host := flag.String("host", "", "optional hostname for webserver")
+	host := flag.String("host", "", "Optional hostname for webserver")
 	pidfile := flag.String("pidfile", "", "Optional file to write process ID to")
 	secretsFile := flag.String("secrets", "config/secrets.yaml", "Path to local secrets file")
 	flag.Parse()
@@ -81,8 +80,6 @@ func main() {
 		log.Fatalf("failed to parse secrets: %s", err)
 	}
 
-	log.Printf("hello, world!  v1")
-
 	db, err := sql.Open("sqlite3", "file:"+*dbfile+"?cache=shared")
 	if err != nil {
 		log.Fatalf("failed to open sqlite connection: %s", err)
@@ -95,10 +92,6 @@ func main() {
 
 	if err := storage.UpsertDatabaseTables(ctx, db); err != nil {
 		log.Fatalf("failed to upsert database tables: %s", err)
-	}
-
-	if *daemonize {
-
 	}
 
 	if *pidfile != "" {
@@ -153,6 +146,7 @@ func main() {
 	// TODO: in a handler wrapper, redirect http to https (in production only)
 
 	if !inDev {
+		log.Printf("starting autocert manager")
 		if err := os.MkdirAll(*certsDir, 0777); err != nil {
 			log.Fatalf("failed to create certs dir: %s", err)
 		}
@@ -162,8 +156,8 @@ func main() {
 			Prompt: autocert.AcceptTOS,
 			Email:  "ianrose14+autocert@gmail.com",
 			HostPolicy: func(ctx context.Context, host string) error {
-				log.Printf("autocert query for host %q", host)
-				return autocert.HostWhitelist("solarsnoop.com", "www.solarsnoop.com")(ctx, host)
+				log.Printf("autocert query for host %q, responding with %v", host, []string{svr.host, "www." + svr.host})
+				return autocert.HostWhitelist(svr.host, "www."+svr.host)(ctx, host)
 			},
 			Cache: autocert.DirCache(*certsDir),
 		}
