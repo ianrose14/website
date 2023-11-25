@@ -8,13 +8,11 @@ import (
 	"flag"
 	"html/template"
 	"io/fs"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"time"
 
 	"github.com/ianrose14/website/internal"
@@ -51,7 +49,6 @@ func main() {
 	certsDir := flag.String("certs", "certs", "Directory to store letsencrypt certs")
 	dbfile := flag.String("db", "store.sqlite", "sqlite database file")
 	host := flag.String("host", "", "Optional hostname for webserver")
-	pidfile := flag.String("pidfile", "", "Optional file to write process ID to")
 	secretsFile := flag.String("secrets", "config/secrets.yaml", "Path to local secrets file")
 	flag.Parse()
 
@@ -66,14 +63,6 @@ func main() {
 		log.Fatalf("failed to get absolute path of %q: %+v", *certsDir, err)
 	}
 	certsDir = &s
-
-	if *pidfile != "" {
-		s, err := filepath.Abs(*pidfile)
-		if err != nil {
-			log.Fatalf("failed to get absolute path of %q: %+v", *pidfile, err)
-		}
-		pidfile = &s
-	}
 
 	secrets, err := internal.ParseSecrets(*secretsFile)
 	if err != nil {
@@ -92,12 +81,6 @@ func main() {
 
 	if err := storage.UpsertDatabaseTables(ctx, db); err != nil {
 		log.Fatalf("failed to upsert database tables: %s", err)
-	}
-
-	if *pidfile != "" {
-		if err := ioutil.WriteFile(*pidfile, []byte(strconv.Itoa(os.Getpid())), 0666); err != nil {
-			log.Fatalf("failed to write pidfile: %+v", err)
-		}
 	}
 
 	svr := &server{
@@ -131,11 +114,13 @@ func main() {
 
 	stravaDb := strava.NewSqliteDb(db)
 	h := func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("basic strava request to %v", r.URL)
 		strava.Handler(w, r, stravaTemplate, stravaDb, stravaAccount)
 	}
 	mux.HandleFunc("/running/", h)
 	mux.HandleFunc("/strava/", h)
 	http.HandleFunc("/strava/exchange_token/", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("token exchange strava request to %v", r.URL)
 		strava.TokenHandler(w, r, stravaDb, stravaAccount)
 	})
 
@@ -146,7 +131,7 @@ func main() {
 	// TODO: in a handler wrapper, redirect http to https (in production only)
 
 	if !inDev {
-		log.Printf("starting autocert manager")
+		log.Printf("starting autocert manager with certsDir=%v", *certsDir)
 		if err := os.MkdirAll(*certsDir, 0777); err != nil {
 			log.Fatalf("failed to create certs dir: %s", err)
 		}

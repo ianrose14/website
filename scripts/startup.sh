@@ -13,4 +13,4 @@ gcloud auth --quiet print-access-token | podman login -u oauth2accesstoken --pas
 podman pull us-central1-docker.pkg.dev/ian-rose/docker-1/webapp:latest
 podman run -d -p 80:80 -p 443:443 --restart=no \
     -v "$(pwd)/config":/root/config/ -v "$(pwd)/data":/root/data/ --name webapp \
-    us-central1-docker.pkg.dev/ian-rose/docker-1/webapp:latest /root/webapp -host ianthomasrose.com
+    us-central1-docker.pkg.dev/ian-rose/docker-1/webapp:latest /root/webapp -host ianthomasrose.com -certs data/certs/
