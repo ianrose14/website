@@ -113,16 +113,18 @@ func main() {
 	mux.HandleFunc("/dump/", svr.dumpHandler)
 
 	stravaDb := strava.NewSqliteDb(db)
-	h := func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("basic strava request to %v", r.URL)
-		strava.Handler(w, r, stravaTemplate, stravaDb, stravaAccount)
-	}
-	mux.HandleFunc("/running/", h)
-	mux.HandleFunc("/strava/", h)
 	http.HandleFunc("/strava/exchange_token/", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("token exchange strava request to %v", r.URL)
 		strava.TokenHandler(w, r, stravaDb, stravaAccount)
 	})
+	{
+		h := func(w http.ResponseWriter, r *http.Request) {
+			log.Printf("basic strava request to %v", r.URL)
+			strava.Handler(w, r, stravaTemplate, stravaDb, stravaAccount)
+		}
+		mux.HandleFunc("/running/", h)
+		mux.HandleFunc("/strava/", h)
+	}
 
 	mux.Handle("/favicon.ico", httpFS(staticFS, "static"))
 
