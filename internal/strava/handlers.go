@@ -3,6 +3,7 @@ package strava
 import (
 	"fmt"
 	"html/template"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -150,5 +151,10 @@ func TokenHandler(w http.ResponseWriter, r *http.Request, db KVDB, account *ApiP
 		return
 	}
 
-	http.Redirect(w, r, "/running/?username="+url.QueryEscape(profile.Username)+"&year="+strconv.Itoa(time.Now().Year()), http.StatusTemporaryRedirect)
+	qs := make(url.Values)
+	qs.Set("username", profile.Username)
+	qs.Set("year", strconv.Itoa(time.Now().Year()))
+	urlStr := "/running/?username=" + qs.Encode()
+	log.Printf("successful token exchange, redirecting to %s", urlStr)
+	http.Redirect(w, r, urlStr, http.StatusTemporaryRedirect)
 }
