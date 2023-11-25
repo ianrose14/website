@@ -62,7 +62,7 @@ func main() {
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		sig := <-c
-		log.Printf("received %s signal", sig)
+		log.Printf("received %q signal", sig)
 		cancel()
 	}()
 
@@ -126,12 +126,10 @@ func main() {
 
 	stravaDb := strava.NewSqliteDb(db)
 	mux.HandleFunc("/strava/exchange_token/", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("token exchange strava request to %v", r.URL)
 		strava.TokenHandler(w, r, stravaDb, stravaAccount)
 	})
 	{
 		h := func(w http.ResponseWriter, r *http.Request) {
-			log.Printf("basic strava request to %v", r.URL)
 			strava.Handler(w, r, stravaTemplate, stravaDb, stravaAccount)
 		}
 		mux.HandleFunc("/running/", h)

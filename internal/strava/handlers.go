@@ -154,7 +154,7 @@ func TokenHandler(w http.ResponseWriter, r *http.Request, db KVDB, account *ApiP
 	qs := make(url.Values)
 	qs.Set("username", profile.Username)
 	qs.Set("year", strconv.Itoa(time.Now().Year()))
-	urlStr := "/running/?username=" + qs.Encode()
+	urlStr := "/running/?" + qs.Encode()
 	log.Printf("successful token exchange, redirecting to %s", urlStr)
 	http.Redirect(w, r, urlStr, http.StatusTemporaryRedirect)
 }
