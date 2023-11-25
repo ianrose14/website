@@ -125,7 +125,7 @@ func main() {
 	mux.HandleFunc("/dump/", svr.dumpHandler)
 
 	stravaDb := strava.NewSqliteDb(db)
-	http.HandleFunc("/strava/exchange_token/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/strava/exchange_token/", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("token exchange strava request to %v", r.URL)
 		strava.TokenHandler(w, r, stravaDb, stravaAccount)
 	})
@@ -182,7 +182,9 @@ func main() {
 
 		go func() {
 			if err := httpsSrv.ServeTLS(lis, "", ""); err != nil {
-				log.Fatalf("failure in https server: %+v", err)
+				if err != http.ErrServerClosed {
+					log.Fatalf("failure in https server: %+v", err)
+				}
 			}
 		}()
 	}
