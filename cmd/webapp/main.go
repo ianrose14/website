@@ -9,10 +9,13 @@ import (
 	"html/template"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
+	"syscall"
 	"time"
 
 	"github.com/ianrose14/website/internal"
@@ -52,11 +55,20 @@ func main() {
 	secretsFile := flag.String("secrets", "config/secrets.yaml", "Path to local secrets file")
 	flag.Parse()
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		sig := <-c
+		log.Printf("received %s signal", sig)
+		cancel()
+	}()
+
 	if *host == "" {
 		*host = "localhost"
 	}
-
-	ctx := context.Background()
 
 	s, err := filepath.Abs(*certsDir)
 	if err != nil {
@@ -153,20 +165,49 @@ func main() {
 
 		httpHandler = certManager.HTTPHandler(mux)
 
-		go func() {
-			log.Printf("listening on port 443")
+		lis, err := net.Listen("tcp", ":https")
+		if err != nil {
+			log.Fatalf("failed to listen on port 443: %+v", err)
+		}
 
-			err := httpsSrv.ListenAndServeTLS("", "")
-			if err != nil {
-				log.Fatalf("httpsSrv.ListendAndServeTLS() failed: %s", err)
+		log.Printf("listening on %s", lis.Addr())
+		srv := &http.Server{Handler: httpHandler}
+
+		go func() {
+			<-ctx.Done()
+			if err := srv.Close(); err != nil {
+				log.Printf("error: failed to close https server: %+v", err)
+			}
+		}()
+
+		go func() {
+			if err := httpsSrv.ServeTLS(lis, "", ""); err != nil {
+				log.Fatalf("failure in https server: %+v", err)
 			}
 		}()
 	}
 
-	log.Printf("listening on port 80")
-	if err := http.ListenAndServe(":http", httpHandler); err != nil {
-		log.Fatalf("http.ListenAndServe failed: %s", err)
+	lis, err := net.Listen("tcp", ":http")
+	if err != nil {
+		log.Fatalf("failed to listen on port 80: %+v", err)
 	}
+
+	log.Printf("listening on %s", lis.Addr())
+	srv := &http.Server{Handler: httpHandler}
+	go func() {
+		<-ctx.Done()
+		if err := srv.Close(); err != nil {
+			log.Printf("error: failed to close http server: %+v", err)
+		}
+	}()
+
+	if err := srv.Serve(lis); err != nil {
+		if err != http.ErrServerClosed {
+			log.Fatalf("failure in http server: %+v", err)
+		}
+	}
+
+	log.Printf("clean exit - goodbye!")
 }
 
 func makeHTTPServer(mux *http.ServeMux) *http.Server {
