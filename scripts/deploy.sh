@@ -9,8 +9,9 @@ set -e
 # Run on initial instance creation:
 # > sudo apt-get update
 # > sudo apt-get install podman
-# > sudo setcap cap_net_bind_service=+ep /usr/bin/podman
-# > sudo setcap cap_net_bind_service=+ep $(which slirp4netns)
+# > systemctl --user enable podman.socket
+# > loginctl enable-linger ianrose14
+# add "net.ipv4.ip_unprivileged_port_start=80" to /etc/sysctl.conf
 
 # make webapp-linux
 
