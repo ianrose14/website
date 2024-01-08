@@ -21,6 +21,13 @@ func Handler(w http.ResponseWriter, r *http.Request, tmpl *template.Template, db
 		}
 	}
 
+	goalMiles := defaultGoalMiles[year]
+	if s := r.URL.Query().Get("goal"); s != "" {
+		if i, err := strconv.Atoi(s); err == nil {
+			goalMiles = i
+		}
+	}
+
 	username := r.URL.Query().Get("username")
 	if username == "" {
 		c, err := r.Cookie("username")
@@ -58,7 +65,6 @@ func Handler(w http.ResponseWriter, r *http.Request, tmpl *template.Template, db
 	})
 
 	now := time.Now()
-	goalMiles := defaultGoalMiles[year]
 	queryStart := time.Date(year, time.January, 1, 0, 0, 0, 0, time.UTC)
 
 	var scaledGoalMiles float64
