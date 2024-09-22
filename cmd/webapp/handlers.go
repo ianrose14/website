@@ -55,14 +55,7 @@ func (svr *server) albumsHandler(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	for _, album := range results.Albums {
-		log.Printf("who am I?  %s", album.CoverPath)
-		album.CoverUrl = fmt.Sprintf("/albums/thumbnail?path=%s", url.QueryEscape(album.CoverPath))
-		if strings.HasSuffix(album.CoverPath, "12.04.04.jpg") {
-			album.CoverUrl = "/images/covers/2020-07-08 12.04.04.jpg"
-		}
-		if strings.Contains(album.CoverPath, "London") {
-			album.CoverUrl = "/images/twitter.png"
-		}
+		album.CoverUrl = "/images/covers/" + album.CoverPath
 	}
 
 	if err := albumsTemplate.Execute(w, results.Albums); err != nil {
