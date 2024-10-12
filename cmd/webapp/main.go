@@ -122,6 +122,7 @@ func main() {
 
 	mux.HandleFunc("/albums/", svr.albumsHandler)
 	mux.HandleFunc("/albums/thumbnail/", svr.thumbnailHandler)
+	mux.HandleFunc("/allison", svr.allisonHandler)
 	mux.HandleFunc("/dump/", svr.dumpHandler)
 
 	stravaDb := strava.NewSqliteDb(db)

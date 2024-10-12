@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"html/template"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -17,11 +16,13 @@ import (
 )
 
 const (
-	AlbumsConfigUrl = "https://www.dropbox.com/s/kr8ewc68husts57/albums.json?dl=1"
+	AlbumsConfigUrl  = "https://www.dropbox.com/s/kr8ewc68husts57/albums.json?dl=1"
+	AllisonConfigUrl = "https://www.dropbox.com/scl/fi/6yalddhnyuo2sld7y845e/web-config.json?rlkey=q1c1lztc1tsz8vhy8xwvqdtl9&st=khjv2q6e&dl=1"
 )
 
 var (
-	albumsTemplate = template.Must(template.ParseFS(templatesFS, "templates/albums.html"))
+	albumsTemplate  = template.Must(template.ParseFS(templatesFS, "templates/albums.html"))
+	allisonTemplate = template.Must(template.ParseFS(templatesFS, "templates/allison.html"))
 )
 
 type album struct {
@@ -29,6 +30,16 @@ type album struct {
 	Url       string `json:"url"`
 	CoverPath string `json:"cover_path"`
 	CoverUrl  string
+}
+
+type webItem struct {
+	Desc string `json:"desc"`
+	Url  string `json:"url"`
+}
+
+type webSection struct {
+	Name  string     `json:"name"`
+	Items []*webItem `json:"items"`
 }
 
 // albumsHandler serves a page that lists all available photo albums.
@@ -64,6 +75,34 @@ func (svr *server) albumsHandler(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
+func (svr *server) allisonHandler(w http.ResponseWriter, _ *http.Request) {
+	rsp, err := http.Get(AllisonConfigUrl)
+	if err != nil {
+		internal.HttpError(w, http.StatusInternalServerError, "failed to fetch web config file from dropbox: %s", err)
+		return
+	}
+	defer internal.DrainAndClose(rsp.Body)
+
+	if err := internal.CheckResponse(rsp); err != nil {
+		internal.HttpError(w, http.StatusInternalServerError, "failed to fetch web config file from dropbox: %s", err)
+		return
+	}
+
+	var results struct {
+		Sections []*webSection `json:"sections"`
+	}
+
+	if err := json.NewDecoder(rsp.Body).Decode(&results); err != nil {
+		internal.HttpError(w, http.StatusInternalServerError, "failed to json-decode response: %s", err)
+		return
+	}
+
+	if err := allisonTemplate.Execute(w, results.Sections); err != nil {
+		internal.HttpError(w, http.StatusInternalServerError, "failed to render template: %s", err)
+		return
+	}
+}
+
 func (svr *server) dumpHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 
@@ -93,7 +132,7 @@ func (svr *server) dumpHandler(w http.ResponseWriter, r *http.Request) {
 	writeIt("%s", buf.String())
 	fmt.Fprintln(w, "") // write blank line to response body
 
-	b, err := ioutil.ReadAll(r.Body)
+	b, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeIt("error: failed to read body: %s", err)
 	} else {

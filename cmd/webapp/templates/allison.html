@@ -27,15 +27,15 @@
   </head>
   <body>
     <div class="main-wrapper">
-      <div class="title">Rose Family Albums</div>
-      <div class="albums">
+      <div class="title">Memories &amp; Celebration of Allison Rose</div>
+      <div>
         {{ range . }}
-        <a href="{{ .Url }}" target="_blank">
-          <div class="album">
-            <span style="background-image: url('{{ .CoverUrl }}');" class="cover"></span><br>
-            <span class="album-title">{{ .Name }}</span>
-          </div>
-        </a>
+        <h3>{{.Name}}</h3>
+        <ul>
+          {{ range .Items }}
+          <li><a href="{{.Url}}" target="_blank">{{ .Desc }}</a></li>
+          {{ end }}
+        </ul>
         {{ end }}
       </div>
     </div>
