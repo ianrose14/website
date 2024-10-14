@@ -34,7 +34,8 @@
       <p>
         On September 16, 2024, I lost my beautiful wife of 20 years, Allison Rose, to gastric cancer.  She was beloved by
         many, so I've created this page as a place to host content that others might want to see, both now and in the
-        future.
+        future.  Our <a href="https://www.caringbridge.org/site/62ec39b4-d0cd-11ee-9d32-23e01ba879ca" target="_blank">Caring Bridge site</a>
+        has several posts detailing her journey since being diagnosed on Feb 2.
       </p>
       <div>
         {{ range . }}
@@ -42,7 +43,7 @@
         <div>{{.Desc}}</div>
         <ul>
           {{ range .Items }}
-          <li><a href="{{.Url}}" target="_blank">{{ .Desc }}</a></li>
+          <li><a href="{{.Url}}" target="_blank">{{ .LinkText }}</a>{{ if .Desc }} - {{ .Desc }}{{ end }}</li>
           {{ end }}
         </ul>
         {{ end }}
