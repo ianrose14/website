@@ -39,6 +39,7 @@ type webItem struct {
 
 type webSection struct {
 	Name  string     `json:"name"`
+	Desc  string     `json:"desc"`
 	Items []*webItem `json:"items"`
 }
 

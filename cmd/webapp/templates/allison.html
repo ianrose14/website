@@ -1,6 +1,6 @@
 <!DOCTYPE html>
   <head>
-    <link type="text/css" href="/css/albums.css" rel="stylesheet" media="screen">
+    <link type="text/css" href="/css/allison.css" rel="stylesheet" media="screen">
 
   <script>
     window['_fs_host'] = 'fullstory.com';
@@ -28,9 +28,18 @@
   <body>
     <div class="main-wrapper">
       <div class="title">Memories &amp; Celebration of Allison Rose</div>
+      <div style="text-align: center">
+        <img src="images/Allison_Rose.jpg" alt="Allison Rose" style="height: 20em">
+      </div>
+      <p>
+        On September 16, 2024, I lost my beautiful wife of 20 years, Allison Rose, to gastric cancer.  She was beloved by
+        many, so I've created this page as a place to host content that others might want to see, both now and in the
+        future.
+      </p>
       <div>
         {{ range . }}
         <h3>{{.Name}}</h3>
+        <div>{{.Desc}}</div>
         <ul>
           {{ range .Items }}
           <li><a href="{{.Url}}" target="_blank">{{ .Desc }}</a></li>
