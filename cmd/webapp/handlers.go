@@ -33,15 +33,16 @@ type album struct {
 }
 
 type webItem struct {
-	Desc string `json:"desc"`
-	Url  string `json:"url"`
+	Name     string `json:"name"`
+	Desc     string `json:"desc"`
+	Url      string `json:"url"`
+	LinkText string `json:"linktext"`
 }
 
 type webSection struct {
-	Name     string     `json:"name"`
-	Desc     string     `json:"desc"`
-	LinkText string     `json:"linktext"`
-	Items    []*webItem `json:"items"`
+	Name  string     `json:"name"`
+	Desc  string     `json:"desc"`
+	Items []*webItem `json:"items"`
 }
 
 // albumsHandler serves a page that lists all available photo albums.
