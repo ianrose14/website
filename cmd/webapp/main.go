@@ -18,7 +18,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ianrose14/website/internal"
 	"github.com/ianrose14/website/internal/storage"
 	"github.com/ianrose14/website/internal/strava"
 	_ "github.com/mattn/go-sqlite3"
@@ -52,7 +51,6 @@ func main() {
 	certsDir := flag.String("certs", "certs", "Directory to store letsencrypt certs")
 	dbfile := flag.String("db", "store.sqlite", "sqlite database file")
 	host := flag.String("host", "", "Optional hostname for webserver")
-	secretsFile := flag.String("secrets", "config/secrets.yaml", "Path to local secrets file")
 	flag.Parse()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -76,11 +74,6 @@ func main() {
 	}
 	certsDir = &s
 
-	secrets, err := internal.ParseSecrets(*secretsFile)
-	if err != nil {
-		log.Fatalf("failed to parse secrets: %s", err)
-	}
-
 	db, err := sql.Open("sqlite3", "file:"+*dbfile+"?cache=shared")
 	if err != nil {
 		log.Fatalf("failed to open sqlite connection: %s", err)
@@ -96,14 +89,13 @@ func main() {
 	}
 
 	svr := &server{
-		db:      db,
-		secrets: secrets,
-		host:    *host,
+		db:   db,
+		host: *host,
 	}
 
 	stravaAccount := &strava.ApiParams{
-		ClientId:     secrets.Strava.ClientID,
-		ClientSecret: secrets.Strava.ClientSecret,
+		ClientId:     stravaClientID,
+		ClientSecret: stravaClientSecret,
 		Hostname:     *host,
 	}
 
@@ -222,7 +214,6 @@ func makeHTTPServer(mux *http.ServeMux) *http.Server {
 }
 
 type server struct {
-	db      *sql.DB
-	secrets *internal.SecretsFile
-	host    string
+	db   *sql.DB
+	host string
 }

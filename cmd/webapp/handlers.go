@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/ianrose14/website/internal"
@@ -23,6 +24,10 @@ const (
 var (
 	albumsTemplate  = template.Must(template.ParseFS(templatesFS, "templates/albums.html"))
 	allisonTemplate = template.Must(template.ParseFS(templatesFS, "templates/allison.html"))
+
+	dropboxAccessToken = os.Getenv("DROPBOX_TOKEN")
+	stravaClientID     = os.Getenv("STRAVA_CLIENT_ID")
+	stravaClientSecret = os.Getenv("STRAVA_SECRET")
 )
 
 type album struct {
@@ -192,7 +197,7 @@ func (svr *server) thumbnailHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req.Header.Set("Authorization", "Bearer "+svr.secrets.Dropbox.AccessToken)
+	req.Header.Set("Authorization", "Bearer "+dropboxAccessToken)
 
 	rsp, err := http.DefaultClient.Do(req)
 	if err != nil {

@@ -22,6 +22,9 @@ func Handler(w http.ResponseWriter, r *http.Request, tmpl *template.Template, db
 	}
 
 	goalMiles := defaultGoalMiles[year]
+	if goalMiles == 0 {
+		goalMiles = 500
+	}
 	if s := r.URL.Query().Get("goal"); s != "" {
 		if i, err := strconv.Atoi(s); err == nil {
 			goalMiles = i

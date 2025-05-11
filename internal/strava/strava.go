@@ -6,10 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"sync"
 	"time"
 
@@ -27,6 +27,7 @@ var (
 		2022: 400,
 		2023: 425,
 		2024: 750,
+		2025: 750,
 	}
 )
 
@@ -50,7 +51,7 @@ func (db *FileDatabase) Read(_ context.Context, key string) (*storage.FetchStrav
 		return nil, nil
 	}
 
-	contents, err := ioutil.ReadFile(db.filepath)
+	contents, err := os.ReadFile(db.filepath)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +68,7 @@ func (db *FileDatabase) Write(_ context.Context, key string, tokens *storage.Fet
 	m := make(map[string]*storage.FetchStravaTokensRow)
 
 	if internal.FileExists(db.filepath) {
-		contents, err := ioutil.ReadFile(db.filepath)
+		contents, err := os.ReadFile(db.filepath)
 		if err != nil {
 			return err
 		}
@@ -83,7 +84,7 @@ func (db *FileDatabase) Write(_ context.Context, key string, tokens *storage.Fet
 		return err
 	}
 
-	return ioutil.WriteFile(db.filepath, contents, 0644)
+	return os.WriteFile(db.filepath, contents, 0644)
 }
 
 type MemoryDatabase struct {
