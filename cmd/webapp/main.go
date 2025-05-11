@@ -68,6 +68,8 @@ func main() {
 		*host = "localhost"
 	}
 
+	log.Printf("Starting up, with -certs=%s, -db=%s, -host=%s", *certsDir, *dbfile, *host)
+
 	s, err := filepath.Abs(*certsDir)
 	if err != nil {
 		log.Fatalf("failed to get absolute path of %q: %+v", *certsDir, err)
