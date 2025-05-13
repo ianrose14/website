@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -222,8 +223,12 @@ func (svr *server) thumbnailHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func redirectToHttps(w http.ResponseWriter, r *http.Request) {
-	if strings.HasPrefix(r.URL.String(), "http://") {
-		http.Redirect(w, r, "https://"+strings.TrimPrefix(r.URL.String(), "http://"), http.StatusMovedPermanently)
+	if r.TLS == nil {
+		host, _, _ := net.SplitHostPort(r.Host)
+		u := r.URL
+		u.Host = net.JoinHostPort(host, "443")
+		u.Scheme = "https"
+		http.Redirect(w, r, u.String(), http.StatusMovedPermanently)
 	} else {
 		http.Error(w, "unsupported protocol: "+r.URL.String(), http.StatusBadRequest)
 	}
