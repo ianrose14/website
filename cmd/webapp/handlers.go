@@ -157,6 +157,10 @@ func (svr *server) dumpHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (svr *server) scholarshipFundHandler(w http.ResponseWriter, _ *http.Request) {
+	fmt.Fprintf(w, "Coming soon!  Please check back in a few weeks.")
+}
+
 func (svr *server) thumbnailHandler(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	if path == "" {

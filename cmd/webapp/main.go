@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"embed"
 	_ "embed"
+	"errors"
 	"flag"
 	"html/template"
 	"io/fs"
@@ -15,6 +16,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -41,6 +43,11 @@ var (
 
 	//stravaVars = &internal.MemoryDatabase{vals: make(map[string]*internal.StravaTokens)}
 	stravaTemplate = template.Must(template.ParseFS(templatesFS, "templates/strava.html"))
+
+	baseHosts = []string{
+		"ianthomasrose.com",
+		"allisonrosememorialfund.org",
+	}
 )
 
 func init() {
@@ -50,7 +57,6 @@ func init() {
 func main() {
 	certsDir := flag.String("certs", "certs", "Directory to store letsencrypt certs")
 	dbfile := flag.String("db", "store.sqlite", "sqlite database file")
-	host := flag.String("host", "", "Optional hostname for webserver")
 	flag.Parse()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -64,11 +70,7 @@ func main() {
 		cancel()
 	}()
 
-	if *host == "" {
-		*host = "localhost"
-	}
-
-	log.Printf("Starting up, with -certs=%s, -db=%s, -host=%s", *certsDir, *dbfile, *host)
+	log.Printf("Starting up, with -certs=%s, -db=%s", *certsDir, *dbfile)
 
 	s, err := filepath.Abs(*certsDir)
 	if err != nil {
@@ -91,14 +93,13 @@ func main() {
 	}
 
 	svr := &server{
-		db:   db,
-		host: *host,
+		db: db,
 	}
 
 	stravaAccount := &strava.ApiParams{
 		ClientId:     stravaClientID,
 		ClientSecret: stravaClientSecret,
-		Hostname:     *host,
+		Hostname:     baseHosts[0],
 	}
 
 	httpFS := func(files embed.FS, subdir string) http.Handler {
@@ -109,31 +110,43 @@ func main() {
 		return http.FileServer(http.FS(d))
 	}
 
-	mux := http.NewServeMux()
-	mux.Handle("/", httpFS(staticFS, "static"))
-	mux.Handle("/pubs/", http.FileServer(http.FS(publicationsFS)))
-	mux.Handle("/talks/", http.FileServer(http.FS(talksFS)))
+	fundMux := http.NewServeMux()
+	fundMux.HandleFunc("/", svr.scholarshipFundHandler)
 
-	mux.HandleFunc("/albums/", svr.albumsHandler)
-	mux.HandleFunc("/albums/thumbnail/", svr.thumbnailHandler)
-	mux.HandleFunc("/allison", svr.allisonHandler)
-	mux.HandleFunc("/dump/", svr.dumpHandler)
+	baseMux := http.NewServeMux()
+	baseMux.Handle("/", httpFS(staticFS, "static"))
+	baseMux.Handle("/pubs/", http.FileServer(http.FS(publicationsFS)))
+	baseMux.Handle("/talks/", http.FileServer(http.FS(talksFS)))
+
+	baseMux.HandleFunc("/albums/", svr.albumsHandler)
+	baseMux.HandleFunc("/albums/thumbnail/", svr.thumbnailHandler)
+	baseMux.HandleFunc("/allison", svr.allisonHandler)
+	baseMux.HandleFunc("/dump/", svr.dumpHandler)
 
 	stravaDb := strava.NewSqliteDb(db)
-	mux.HandleFunc("/strava/exchange_token/", func(w http.ResponseWriter, r *http.Request) {
+	baseMux.HandleFunc("/strava/exchange_token/", func(w http.ResponseWriter, r *http.Request) {
 		strava.TokenHandler(w, r, stravaDb, stravaAccount)
 	})
 	{
 		h := func(w http.ResponseWriter, r *http.Request) {
 			strava.Handler(w, r, stravaTemplate, stravaDb, stravaAccount)
 		}
-		mux.HandleFunc("/running/", h)
-		mux.HandleFunc("/strava/", h)
+		baseMux.HandleFunc("/running/", h)
+		baseMux.HandleFunc("/strava/", h)
 	}
 
-	mux.Handle("/favicon.ico", httpFS(staticFS, "static"))
+	topMux := http.NewServeMux()
+	topMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.Host, "allisonrosememorialfund.org") {
+			fundMux.ServeHTTP(w, r)
+		} else {
+			baseMux.ServeHTTP(w, r)
+		}
+	})
 
-	var httpHandler http.Handler = mux
+	topMux.Handle("/favicon.ico", httpFS(staticFS, "static"))
+
+	var httpHandler http.Handler = topMux
 
 	// TODO: in a handler wrapper, redirect http to https (in production only)
 
@@ -143,27 +156,27 @@ func main() {
 			log.Fatalf("failed to create certs dir: %s", err)
 		}
 
-		httpsSrv := makeHTTPServer(mux)
+		var allHosts []string
+		for _, h := range baseHosts {
+			allHosts = append(allHosts, h, "www."+h)
+		}
+
+		httpsSrv := makeHTTPServer(topMux)
 		certManager := &autocert.Manager{
 			Prompt: autocert.AcceptTOS,
 			Email:  "ianrose14+autocert@gmail.com",
 			HostPolicy: func(ctx context.Context, host string) error {
-				log.Printf("autocert query for host %q, responding with %v", host, []string{svr.host, "www." + svr.host})
-				return autocert.HostWhitelist(svr.host, "www."+svr.host)(ctx, host)
+				log.Printf("autocert query for host %q, responding with %v", host, allHosts)
+				return autocert.HostWhitelist(allHosts...)(ctx, host)
 			},
 			Cache: autocert.DirCache(*certsDir),
 		}
 		httpsSrv.Addr = ":https"
 		httpsSrv.TLSConfig = certManager.TLSConfig()
 
-		httpHandler = certManager.HTTPHandler(mux)
+		httpHandler = certManager.HTTPHandler(topMux)
 
-		lis, err := net.Listen("tcp", ":https")
-		if err != nil {
-			log.Fatalf("failed to listen on port 443: %+v", err)
-		}
-
-		log.Printf("listening on %s", lis.Addr())
+		log.Printf("listening on %s", httpsSrv.Addr)
 		srv := &http.Server{Handler: httpHandler}
 
 		go func() {
@@ -174,9 +187,27 @@ func main() {
 		}()
 
 		go func() {
-			if err := httpsSrv.ServeTLS(lis, "", ""); err != nil {
-				if err != http.ErrServerClosed {
+			if err := httpsSrv.ListenAndServeTLS("", ""); err != nil {
+				if !errors.Is(err, http.ErrServerClosed) {
 					log.Fatalf("failure in https server: %+v", err)
+				}
+			}
+		}()
+
+		go func() {
+			mux := http.NewServeMux()
+			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasPrefix(r.URL.String(), "http://") {
+					http.Redirect(w, r, "https://"+strings.TrimPrefix(r.URL.String(), "http://"), http.StatusMovedPermanently)
+				} else {
+					http.Error(w, "unsupported protocol: "+r.URL.String(), http.StatusBadRequest)
+				}
+			})
+			httpSrv := makeHTTPServer(mux)
+			httpSrv.Addr = ":http"
+			if err := httpSrv.ListenAndServe(); err != nil {
+				if !errors.Is(err, http.ErrServerClosed) {
+					log.Fatalf("failure in http server: %+v", err)
 				}
 			}
 		}()
@@ -197,7 +228,7 @@ func main() {
 	}()
 
 	if err := srv.Serve(lis); err != nil {
-		if err != http.ErrServerClosed {
+		if !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("failure in http server: %+v", err)
 		}
 	}
