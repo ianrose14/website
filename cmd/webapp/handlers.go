@@ -220,3 +220,11 @@ func (svr *server) thumbnailHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("failed to copy thumbnail body to response stream: %s", err)
 	}
 }
+
+func redirectToHttps(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.String(), "http://") {
+		http.Redirect(w, r, "https://"+strings.TrimPrefix(r.URL.String(), "http://"), http.StatusMovedPermanently)
+	} else {
+		http.Error(w, "unsupported protocol: "+r.URL.String(), http.StatusBadRequest)
+	}
+}

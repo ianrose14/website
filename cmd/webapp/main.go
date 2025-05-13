@@ -10,7 +10,6 @@ import (
 	"html/template"
 	"io/fs"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -92,9 +91,7 @@ func main() {
 		log.Fatalf("failed to upsert database tables: %s", err)
 	}
 
-	svr := &server{
-		db: db,
-	}
+	svr := &server{db: db}
 
 	stravaAccount := &strava.ApiParams{
 		ClientId:     stravaClientID,
@@ -146,7 +143,7 @@ func main() {
 
 	topMux.Handle("/favicon.ico", httpFS(staticFS, "static"))
 
-	var httpHandler http.Handler = topMux
+	var httpHandler http.Handler
 
 	// TODO: in a handler wrapper, redirect http to https (in production only)
 
@@ -173,53 +170,27 @@ func main() {
 		}
 		httpsSrv.Addr = ":https"
 		httpsSrv.TLSConfig = certManager.TLSConfig()
-
-		httpHandler = certManager.HTTPHandler(topMux)
-
-		log.Printf("listening on %s", httpsSrv.Addr)
-		srv := &http.Server{Handler: httpHandler}
-
 		go func() {
 			<-ctx.Done()
-			if err := srv.Close(); err != nil {
+			if err := httpsSrv.Close(); err != nil {
 				log.Printf("error: failed to close https server: %+v", err)
 			}
 		}()
 
+		httpHandler = certManager.HTTPHandler(http.HandlerFunc(redirectToHttps))
+
 		go func() {
+			log.Printf("listening on %s", httpsSrv.Addr)
 			if err := httpsSrv.ListenAndServeTLS("", ""); err != nil {
 				if !errors.Is(err, http.ErrServerClosed) {
 					log.Fatalf("failure in https server: %+v", err)
 				}
 			}
 		}()
-
-		go func() {
-			mux := http.NewServeMux()
-			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-				if strings.HasPrefix(r.URL.String(), "http://") {
-					http.Redirect(w, r, "https://"+strings.TrimPrefix(r.URL.String(), "http://"), http.StatusMovedPermanently)
-				} else {
-					http.Error(w, "unsupported protocol: "+r.URL.String(), http.StatusBadRequest)
-				}
-			})
-			httpSrv := makeHTTPServer(mux)
-			httpSrv.Addr = ":http"
-			if err := httpSrv.ListenAndServe(); err != nil {
-				if !errors.Is(err, http.ErrServerClosed) {
-					log.Fatalf("failure in http server: %+v", err)
-				}
-			}
-		}()
 	}
 
-	lis, err := net.Listen("tcp", ":http")
-	if err != nil {
-		log.Fatalf("failed to listen on port 80: %+v", err)
-	}
-
-	log.Printf("listening on %s", lis.Addr())
 	srv := &http.Server{Handler: httpHandler}
+	srv.Addr = ":http"
 	go func() {
 		<-ctx.Done()
 		if err := srv.Close(); err != nil {
@@ -227,7 +198,8 @@ func main() {
 		}
 	}()
 
-	if err := srv.Serve(lis); err != nil {
+	log.Printf("listening on %s", srv.Addr)
+	if err := srv.ListenAndServe(); err != nil {
 		if !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("failure in http server: %+v", err)
 		}
